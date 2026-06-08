@@ -17,6 +17,7 @@ import { formatXOF } from "@/lib/currency"
 export default function DashboardPage() {
   const { todaySales, totalCustomers, totalProducts, totalDebt, alerts, recentSales, chartData, todaySalesCount, totalUsers, settings, loading, error } = useDashboard()
   const authLoading = useAuthStore((s) => s.isLoading)
+  const tenant = useAuthStore((s) => s.tenant)
 
   const checklistItems = useMemo(() => {
     const hasWaveKey = !!settings?.waveApiKey
@@ -60,7 +61,7 @@ export default function DashboardPage() {
       </Button>
     </div>
   )
-  if (totalProducts === 0) return <OnboardingWizard />
+  if (totalProducts === 0 && !tenant?.onboardingCompleted) return <OnboardingWizard />
 
   return (
     <div className="space-y-6">

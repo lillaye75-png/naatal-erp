@@ -19,6 +19,7 @@ export interface Tenant {
   language: 'fr' | 'en' | 'wo'
   locale: string
   sector?: string
+  onboardingCompleted?: boolean
 }
 
 export interface User {

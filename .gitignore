@@ -56,3 +56,5 @@ what add remove fix on naatal erp.txt
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+.vercel

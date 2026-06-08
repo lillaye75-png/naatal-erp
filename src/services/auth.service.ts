@@ -28,11 +28,15 @@ async function setCustomClaims(userId: string, claims: Record<string, string>) {
   const currentUser = auth.currentUser
   if (!currentUser) return
   const idToken = await currentUser.getIdToken()
-  await fetch('/api/auth/set-claims', {
+  const res = await fetch('/api/auth/set-claims', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ idToken, claims }),
   })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.error || 'Failed to set custom claims')
+  }
   await currentUser.getIdTokenResult(true)
 }
 

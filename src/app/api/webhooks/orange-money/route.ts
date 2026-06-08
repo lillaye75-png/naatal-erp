@@ -41,8 +41,8 @@ export async function POST(req: NextRequest) {
       if (saleData.customerId) {
         const customerSnap = await adminDb.collection("customers").doc(saleData.customerId).get()
           if (customerSnap.exists) {
-            const customerData = customerSnap.data()
-            const currentDebt = customerData?.totalDebt || 0
+            const customerData = customerSnap.data()!
+            const currentDebt = customerData.totalDebt || 0
             await adminDb.collection("customers").doc(customerSnap.id).update({
               totalDebt: Math.max(0, currentDebt - amount),
             })
