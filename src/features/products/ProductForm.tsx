@@ -27,6 +27,7 @@ const productSchema = z.object({
   minStock: z.coerce.number().min(0).default(0),
   barcode: z.string().optional(),
   imageUrl: z.string().optional(),
+  isSoldOnline: z.boolean().default(false),
 })
 
 type ProductFormValues = z.infer<typeof productSchema>
@@ -58,6 +59,7 @@ export function ProductForm({ product, onSubmit, onCancel }: ProductFormProps) {
           minStock: product.minStock,
           barcode: product.barcode,
           imageUrl: product.imageUrl || '',
+          isSoldOnline: product.isSoldOnline ?? false,
         }
       : {
           name: "",
@@ -67,10 +69,12 @@ export function ProductForm({ product, onSubmit, onCancel }: ProductFormProps) {
           minStock: 0,
           barcode: "",
           imageUrl: "",
+          isSoldOnline: false,
         },
   })
 
   const imageUrl = watch('imageUrl')
+  const isSoldOnline = watch('isSoldOnline')
 
   return (
     <form method="POST" onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -78,6 +82,14 @@ export function ProductForm({ product, onSubmit, onCancel }: ProductFormProps) {
         value={imageUrl || ''}
         onChange={(url) => setValue('imageUrl', url)}
       />
+      <div className="space-y-1">
+        <Label>Ou URL de l'image</Label>
+        <Input
+          value={imageUrl || ''}
+          onChange={(e) => setValue('imageUrl', e.target.value)}
+          placeholder="https://exemple.com/image.jpg"
+        />
+      </div>
       <div className="space-y-2">
         <Label htmlFor="name">Nom du produit</Label>
         <Input id="name" {...register("name")} placeholder="Ex: Huile d'olive 1L" />
@@ -131,6 +143,15 @@ export function ProductForm({ product, onSubmit, onCancel }: ProductFormProps) {
           </Select>
         </div>
       </div>
+      <label className="flex items-center gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={isSoldOnline}
+          onChange={(e) => setValue('isSoldOnline', e.target.checked)}
+          className="rounded"
+        />
+        <span className="text-sm font-medium">Vente en ligne</span>
+      </label>
       <div className="flex items-center justify-end gap-2 pt-2">
         <Button type="button" variant="outline" onClick={onCancel}>
           Annuler

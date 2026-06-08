@@ -7,7 +7,7 @@ import { z } from "zod"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
-import { Plus, Search, Users, Pencil, Trash2 } from "lucide-react"
+import { Plus, Search, Users, Pencil, Trash2, Download } from "lucide-react"
 import { TableSkeleton } from "@/components/shared/Skeleton"
 import { formatXOF } from "@/lib/currency"
 import {
@@ -126,6 +126,22 @@ export default function CustomersPage() {
       c.phone.includes(search),
   )
 
+  async function handleExport() {
+    const XLSX = await import('xlsx')
+    const ws = XLSX.utils.json_to_sheet(
+      customers.map((c) => ({
+        Nom: c.name,
+        Email: c.email || '',
+        Téléphone: c.phone,
+        Adresse: c.address || '',
+        Dette: c.totalDebt || 0,
+      })),
+    )
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Clients')
+    XLSX.writeFile(wb, 'clients.xlsx')
+  }
+
   if (loading) return <TableSkeleton />
 
   return (
@@ -144,6 +160,10 @@ export default function CustomersPage() {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
+        <Button variant="outline" onClick={handleExport}>
+          <Download className="w-4 h-4 mr-1" />
+          Exporter
+        </Button>
         <Button onClick={openAddDialog}>
           <Plus className="w-4 h-4 mr-1" />
           Ajouter
