@@ -14,6 +14,8 @@ NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET=sununaataluploads
 
 NEXT_PUBLIC_USE_FIREBASE_EMULATORS=false
 
+RESEND_API_KEY=re_iQ1KYH3F_88ZFTWqwSVM7ufcTegVvriDQ
+
 # Wave & Orange Money API keys are configured per-tenant in the Settings page (Settings > Paiements)
 
 # Firebase Admin SDK

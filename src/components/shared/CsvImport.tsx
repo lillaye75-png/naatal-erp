@@ -17,32 +17,65 @@ export function CsvImport({ fields, onImport, title = "Importer CSV" }: CsvImpor
   const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
+  function parseCsvLine(line: string): string[] {
+    const result: string[] = []
+    let current = ''
+    let inQuotes = false
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i]
+      if (ch === '"') {
+        inQuotes = !inQuotes
+      } else if (ch === ',' && !inQuotes) {
+        result.push(current.trim())
+        current = ''
+      } else {
+        current += ch
+      }
+    }
+    result.push(current.trim())
+    return result
+  }
+
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
     setError(null)
     const reader = new FileReader()
     reader.onload = (evt) => {
-      const text = evt.target?.result as string
+      const text = (evt.target?.result as string).replace(/^\uFEFF/, '')
       const lines = text.split('\n').filter((l) => l.trim())
       if (lines.length < 2) {
         setError("Le fichier doit contenir un en-tête et au moins une ligne")
         return
       }
-      const headers = lines[0].split(',').map((h) => h.trim().toLowerCase())
+      const rawHeaders = parseCsvLine(lines[0])
+      const headerMap = new Map<string, string>()
+      for (const h of rawHeaders) {
+        const cleaned = h.replace(/^"|"$/g, '').toLowerCase()
+        headerMap.set(cleaned, h)
+      }
+      function matchField(headerClean: string) {
+        return fields.find((f) =>
+          f.key.toLowerCase() === headerClean ||
+          f.label.toLowerCase() === headerClean ||
+          f.label.toLowerCase().replace(/[^a-z0-9]/g, '') === headerClean.replace(/[^a-z0-9]/g, ''),
+        )
+      }
       const missing = fields
-        .filter((f) => f.required && !headers.includes(f.key.toLowerCase()))
+        .filter((f) => f.required && !headerMap.has(f.key.toLowerCase()) && !Array.from(headerMap.keys()).some((h) => matchField(h)?.key === f.key))
         .map((f) => f.label)
       if (missing.length > 0) {
-        setError(`Champs obligatoires manquants: ${missing.join(', ')}`)
+        const detected = Array.from(headerMap.keys()).join(', ')
+        setError(`Champs obligatoires manquants: ${missing.join(', ')}. En-têtes détectées: ${detected}`)
         return
       }
       const parsed = lines.slice(1).map((line) => {
-        const values = line.split(',').map((v) => v.trim())
+        const values = parseCsvLine(line)
         const row: Record<string, string> = {}
-        headers.forEach((h, i) => {
-          const field = fields.find((f) => f.key.toLowerCase() === h)
-          if (field) row[field.key] = values[i] || ''
+        rawHeaders.forEach((raw, i) => {
+          const cleaned = raw.replace(/^"|"$/g, '').toLowerCase()
+          const field = matchField(cleaned)
+          if (field) row[field.key] = (values[i] || '').replace(/^"|"$/g, '')
         })
         return row
       })

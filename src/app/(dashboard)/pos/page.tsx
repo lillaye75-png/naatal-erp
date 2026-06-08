@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
-import { ShoppingCart, Trash2, Plus, Minus, Search, Keyboard, Loader2, Maximize2, Minimize2, RefreshCw, Database } from "lucide-react"
+import { ShoppingCart, Trash2, Plus, Minus, Search, Keyboard, Loader2, Maximize2, Minimize2, RefreshCw, Database, User, Wallet } from "lucide-react"
 import { formatXOF } from "@/lib/currency"
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts"
 import { toast } from "sonner"
@@ -15,6 +15,7 @@ import { useOfflineStore } from "@/stores/offline.store"
 import { initializeFirebase } from "@/lib/firebase"
 import { collection, query, where, getDocs } from "firebase/firestore"
 import { cn } from "@/lib/utils"
+import { createSale } from "@/services/sale.service"
 import type { Product } from "@/types"
 
 const CACHE_PREFIX = 'naatal_products_cache_'
@@ -44,6 +45,7 @@ function setCachedProducts(tenantId: string, products: Product[]) {
 
 export default function PosPage() {
   const tenantId = useAuthStore((s) => s.tenant?.id)
+  const userId = useAuthStore((s) => s.user?.id)
   const isOnline = useOfflineStore((s) => s.isOnline)
   const [barcode, setBarcode] = useState("")
   const [showShortcuts, setShowShortcuts] = useState(false)
@@ -58,6 +60,12 @@ export default function PosPage() {
     return cached ? { count: cached.products.length, cachedAt: cached.cachedAt } : null
   })
   const [cacheLoading, setCacheLoading] = useState(false)
+  const [customerQuery, setCustomerQuery] = useState("")
+  const [customers, setCustomers] = useState<Array<{ id: string; name: string; phone?: string }>>([])
+  const [selectedCustomerId, setSelectedCustomerId] = useState("")
+  const [selectedCustomerName, setSelectedCustomerName] = useState("")
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'WAVE' | 'OM' | 'DEBT'>('CASH')
+  const [showCustomerSearch, setShowCustomerSearch] = useState(false)
 
   useEffect(() => {
     if (!tenantId) return
@@ -85,6 +93,27 @@ export default function PosPage() {
       setCacheInfo({ count: products.length, cachedAt: new Date().toISOString() })
     }
   }, [products, tenantId])
+
+  useEffect(() => {
+    if (!customerQuery.trim() || !tenantId) { setCustomers([]); return }
+    const t = setTimeout(async () => {
+      try {
+        const { db } = await initializeFirebase()
+        const snap = await getDocs(query(
+          collection(db, 'customers'),
+          where('tenantId', '==', tenantId),
+          where('isDeleted', '==', false),
+        ))
+        const q = customerQuery.toLowerCase()
+        const matches = snap.docs
+          .map((d) => ({ id: d.id, name: d.data().name || '', phone: d.data().phone || '' }))
+          .filter((c) => c.name.toLowerCase().includes(q) || (c.phone && c.phone.includes(q)))
+          .slice(0, 10)
+        setCustomers(matches)
+      } catch { setCustomers([]) }
+    }, 300)
+    return () => clearTimeout(t)
+  }, [customerQuery, tenantId])
 
   const displayProducts = isOnline && products.length > 0 ? products : cachedProducts
 
@@ -135,14 +164,41 @@ export default function PosPage() {
     }
   }, [items.length, clearCartInStore])
 
-  const handlePay = useCallback(() => {
+  const handlePay = useCallback(async () => {
     if (items.length === 0) {
       toast.error("Panier vide")
       return
     }
-    toast.success(`Paiement de ${formatXOF(total)} confirmé`)
-    clearCartInStore()
-  }, [items.length, total, clearCartInStore])
+    if (!tenantId || !userId) {
+      toast.error("Session expirée")
+      return
+    }
+    try {
+      const result = await createSale({
+        tenantId,
+        userId,
+        customerId: selectedCustomerId,
+        items: items.map((i) => ({
+          productId: i.productId,
+          qty: i.qty,
+          unitPrice: i.price,
+          productName: i.name,
+        })),
+        subtotal: total,
+        discount: 0,
+        tax: 0,
+        total,
+        paymentMethod,
+        amountPaid: paymentMethod === 'DEBT' ? 0 : total,
+      })
+      if (result.saleId !== 'offline') {
+        toast.success(`Vente enregistrée — Facture ${result.invoiceNumber}`)
+      }
+      clearCartInStore()
+    } catch (err: any) {
+      toast.error(err?.message || "Erreur lors du paiement")
+    }
+  }, [items, total, tenantId, userId, clearCartInStore])
 
   const handleBarcode = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && barcode.trim()) {
@@ -321,13 +377,81 @@ export default function PosPage() {
             <div className="text-center py-8 text-muted-foreground text-sm">Panier vide</div>
           )}
         </div>
-        <div className="border-t pt-3 mt-3 space-y-2">
+        <div className="border-t pt-3 mt-3 space-y-3">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <User className="w-3 h-3 text-muted-foreground" />
+              <span className="text-xs font-medium text-muted-foreground">Client</span>
+              {selectedCustomerName && (
+                <button className="text-xs text-destructive ml-auto" onClick={() => { setSelectedCustomerId(''); setSelectedCustomerName('') }}>
+                  Retirer
+                </button>
+              )}
+            </div>
+            {showCustomerSearch ? (
+              <div className="relative">
+                <Input
+                  placeholder="Rechercher un client..."
+                  className="h-8 text-xs"
+                  value={customerQuery}
+                  onChange={(e) => setCustomerQuery(e.target.value)}
+                  autoFocus
+                  onBlur={() => setTimeout(() => setShowCustomerSearch(false), 200)}
+                />
+                {customers.length > 0 && (
+                  <div className="absolute top-full left-0 right-0 z-50 bg-popover border rounded-md mt-1 shadow-md max-h-40 overflow-y-auto">
+                    {customers.map((c) => (
+                      <button
+                        key={c.id}
+                        className="w-full text-left px-3 py-1.5 text-xs hover:bg-muted transition-colors"
+                        onMouseDown={() => { setSelectedCustomerId(c.id); setSelectedCustomerName(c.name); setShowCustomerSearch(false); setCustomerQuery('') }}
+                      >
+                        <span className="font-medium">{c.name}</span>
+                        {c.phone && <span className="text-muted-foreground ml-2">{c.phone}</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <button
+                className="text-xs text-primary hover:underline w-full text-left"
+                onClick={() => setShowCustomerSearch(true)}
+              >
+                {selectedCustomerName || 'Ajouter un client (optionnel)'}
+              </button>
+            )}
+          </div>
+
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <Wallet className="w-3 h-3 text-muted-foreground" />
+              <span className="text-xs font-medium text-muted-foreground">Paiement</span>
+            </div>
+            <div className="flex gap-1">
+              {(['CASH', 'WAVE', 'OM', 'DEBT'] as const).map((m) => (
+                <button
+                  key={m}
+                  className={cn(
+                    "flex-1 text-xs h-8 rounded-md border transition-colors font-medium",
+                    paymentMethod === m
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'bg-background text-muted-foreground border-border hover:bg-muted'
+                  )}
+                  onClick={() => setPaymentMethod(m)}
+                >
+                  {m === 'CASH' ? 'Espèces' : m === 'WAVE' ? 'Wave' : m === 'OM' ? 'Orange Money' : 'Dette'}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="flex justify-between text-lg font-bold">
             <span>Total</span>
             <span>{formatXOF(total)}</span>
           </div>
           <Button className="w-full" size="lg" disabled={items.length === 0} onClick={handlePay}>
-            Payer
+            {paymentMethod === 'DEBT' ? 'Enregistrer la dette' : 'Payer'}
           </Button>
         </div>
       </div>

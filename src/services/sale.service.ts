@@ -12,11 +12,11 @@ async function getDb() {
   return db
 }
 
-async function getProductStock(productId: string): Promise<number> {
+async function getProductStock(productId: string, tenantId?: string): Promise<number> {
   const db = await getDb()
-  const snap = await getDocs(
-    query(collection(db, 'inventory_movements'), where('productId', '==', productId)),
-  )
+  const conditions = [where('productId', '==', productId), where('isDeleted', '==', false)]
+  if (tenantId) conditions.push(where('tenantId', '==', tenantId))
+  const snap = await getDocs(query(collection(db, 'inventory_movements'), ...conditions))
   return snap.docs.reduce((sum, d) => sum + (d.data().qty || 0), 0)
 }
 
@@ -68,7 +68,7 @@ export async function createSale(params: {
 
   if (!skipStock) {
     for (const item of params.items) {
-      const stock = await getProductStock(item.productId)
+      const stock = await getProductStock(item.productId, params.tenantId)
       if (item.qty > stock) {
         throw new Error(`Stock insuffisant pour ${item.productName || item.productId}`)
       }

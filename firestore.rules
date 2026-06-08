@@ -70,7 +70,7 @@ service cloud.firestore {
     }
 
     match /counters/{counterId} {
-      allow read, write: if isAuthenticated() && belongsToTenantOrOwner(counterId.replace('invoice_', ''));
+      allow read, write: if isAuthenticated() && belongsToTenantOrOwner(counterId.split('_')[1]);
     }
 
     match /payments/{paymentId} {

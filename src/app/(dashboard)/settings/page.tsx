@@ -16,6 +16,7 @@ import { toast } from "sonner"
 import { testWaveConnection } from "@/lib/wave"
 import { testOrangeMoneyConnection } from "@/lib/orange-money"
 import { cn } from "@/lib/utils"
+import { uploadToCloudinary } from "@/lib/cloudinary"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 
 export default function SettingsPage() {
@@ -29,7 +30,8 @@ export default function SettingsPage() {
   const [logoUploading, setLogoUploading] = useState(false)
   const [storefrontId, setStorefrontId] = useState<string | null>(null)
   const logoInputRef = useRef<HTMLInputElement>(null)
-  const tenantId = useAuthStore((s) => s.tenant?.id)
+  const tenant = useAuthStore((s) => s.tenant)
+  const tenantId = tenant?.id
 
   const [form, setForm] = useState({
     companyName: "",
@@ -219,7 +221,7 @@ export default function SettingsPage() {
     if (!tenantId || !inviteEmail) return
     try {
       const { db } = await initializeFirebase()
-      await addDoc(collection(db, 'user_invites'), {
+      const inviteId = await addDoc(collection(db, 'user_invites'), {
         email: inviteEmail,
         role: inviteRole,
         tenantId,
@@ -227,6 +229,24 @@ export default function SettingsPage() {
         createdAt: Timestamp.now().toMillis().toString(),
         invitedBy: useAuthStore.getState().user?.id,
       })
+
+      const res = await fetch('/api/email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: inviteEmail,
+          subject: `Invitation à rejoindre ${tenant?.name || 'Naatal ERP'}`,
+          html: `<p>Vous avez été invité à rejoindre <strong>${tenant?.name || 'Naatal ERP'}</strong>.</p>
+<p>Créez votre compte ici : <a href="${window.location.origin}/register">${window.location.origin}/register</a></p>
+<p>Votre email d'invitation : ${inviteEmail}</p>`,
+        }),
+      })
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || "Erreur d'envoi d'email")
+      }
+
       toast.success(`Invitation envoyée à ${inviteEmail}`)
       setShowInvite(false)
       setInviteEmail("")
@@ -244,7 +264,7 @@ export default function SettingsPage() {
     { id: "users", label: "Utilisateurs & Rôles", icon: Users },
   ]
 
-  const handleLogoUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLogoUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
     if (!file.type.startsWith('image/')) {
@@ -252,16 +272,14 @@ export default function SettingsPage() {
       return
     }
     setLogoUploading(true)
-    const reader = new FileReader()
-    reader.onload = () => {
-      setForm((prev) => ({ ...prev, logoUrl: reader.result as string }))
-      setLogoUploading(false)
+    try {
+      const url = await uploadToCloudinary(file)
+      setForm((prev) => ({ ...prev, logoUrl: url }))
+      toast.success('Logo téléversé')
+    } catch (err: any) {
+      toast.error(err?.message || "Erreur lors du téléversement")
     }
-    reader.onerror = () => {
-      toast.error('Erreur lors de la lecture du fichier')
-      setLogoUploading(false)
-    }
-    reader.readAsDataURL(file)
+    setLogoUploading(false)
     if (logoInputRef.current) logoInputRef.current.value = ''
   }, [])
 

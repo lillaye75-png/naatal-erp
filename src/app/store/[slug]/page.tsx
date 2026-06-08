@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { collection, query, where, getDocs } from "firebase/firestore"
+import { collection, query, where, getDocs, doc, setDoc, Timestamp } from "firebase/firestore"
 import { initializeFirebase } from "@/lib/firebase"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -9,7 +9,7 @@ import { ShoppingCart, Plus, Minus, Trash2, Loader2, Store, Phone } from "lucide
 import { formatXOF } from "@/lib/currency"
 import { buildWhatsAppUrl } from "@/lib/whatsapp"
 import { toast } from "sonner"
-import { useParams } from "next/navigation"
+import { useParams, useSearchParams } from "next/navigation"
 
 interface StoreProduct {
   id: string
@@ -40,6 +40,8 @@ interface CartItem {
 export default function StorefrontPage() {
   const params = useParams()
   const slug = params?.slug as string
+  const searchParams = useSearchParams()
+  const trackId = searchParams?.get('track')
 
   const [store, setStore] = useState<StorefrontData | null>(null)
   const [products, setProducts] = useState<StoreProduct[]>([])
@@ -47,6 +49,19 @@ export default function StorefrontPage() {
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [cart, setCart] = useState<CartItem[]>([])
+  const [trackedOrder, setTrackedOrder] = useState<any | null>(null)
+
+  useEffect(() => {
+    if (!trackId || !store) return
+    initializeFirebase().then(async ({ db }) => {
+      const snap = await getDocs(query(
+        collection(db, 'orders'),
+        where('trackingId', '==', trackId),
+        where('tenantId', '==', store.tenantId),
+      ))
+      if (!snap.empty) setTrackedOrder({ id: snap.docs[0].id, ...snap.docs[0].data() })
+    }).catch(() => {})
+  }, [trackId, store])
 
   useEffect(() => {
     if (!slug) return
@@ -86,11 +101,18 @@ export default function StorefrontPage() {
           setProducts(productsData)
 
           const stockMap: Record<string, number> = {}
-          for (const p of productsData) {
+          const ids = productsData.map((p) => p.id)
+          for (let i = 0; i < ids.length; i += 30) {
+            const chunk = ids.slice(i, i + 30)
             const movSnap = await getDocs(
-              query(collection(db, 'inventory_movements'), where('productId', '==', p.id)),
+              query(collection(db, 'inventory_movements'), where('productId', 'in', chunk), where('isDeleted', '==', false)),
             )
-            stockMap[p.id] = movSnap.docs.reduce((sum, d) => sum + (d.data().qty || 0), 0)
+            const grouped: Record<string, number> = {}
+            movSnap.docs.forEach((d) => {
+              const pid = d.data().productId
+              grouped[pid] = (grouped[pid] || 0) + (d.data().qty || 0)
+            })
+            chunk.forEach((pid) => { stockMap[pid] = grouped[pid] || 0 })
           }
           if (!cancelled) setStocks(stockMap)
         }
@@ -128,8 +150,40 @@ export default function StorefrontPage() {
 
   const cartTotal = cart.reduce((sum, i) => sum + i.price * i.qty, 0)
 
-  const handleWhatsAppOrder = useCallback(() => {
+  const handleWhatsAppOrder = useCallback(async () => {
     if (cart.length === 0) return
+    if (!store?.tenantId) {
+      toast.error('Boutique non configurée')
+      return
+    }
+
+    let trackingId = ''
+    try {
+      const { db } = await initializeFirebase()
+      const orderRef = doc(collection(db, 'orders'))
+      trackingId = orderRef.id.slice(-8).toUpperCase()
+      await setDoc(orderRef, {
+        id: orderRef.id,
+        trackingId,
+        storefrontId: store.id,
+        tenantId: store.tenantId,
+        items: cart.map((i) => ({ productId: i.productId, name: i.name, price: i.price, qty: i.qty })),
+        total: cartTotal,
+        status: 'CONFIRMED',
+        customerPhone: '',
+        customerName: '',
+        source: 'storefront',
+        paymentMethod: 'CASH',
+        createdAt: Timestamp.now().toMillis().toString(),
+        updatedAt: Timestamp.now().toMillis().toString(),
+      })
+    } catch (err) {
+      console.error('Error saving order:', err)
+      toast.error("Erreur lors de l'enregistrement de la commande")
+      return
+    }
+
+    const trackingUrl = `${window.location.origin}/store/${slug}?track=${trackingId}`
     const lines = cart.map((i) => `- ${i.name} x${i.qty} = ${formatXOF(i.price * i.qty)}`)
     const message = [
       `🛍️ *Nouvelle commande*`,
@@ -138,6 +192,9 @@ export default function StorefrontPage() {
       ...lines,
       '',
       `Total: ${formatXOF(cartTotal)}`,
+      '',
+      `🔍 Suivi: ${trackingId}`,
+      `📎 ${trackingUrl}`,
       '',
       'Merci !',
     ].join('\n')
@@ -149,7 +206,9 @@ export default function StorefrontPage() {
     }
     const url = buildWhatsAppUrl(phone, message)
     window.open(url, '_blank')
-  }, [cart, cartTotal, store])
+    setCart([])
+    toast.success(`Commande enregistrée — Suivi: ${trackingId}`)
+  }, [cart, cartTotal, store, slug])
 
   if (loading) {
     return (
@@ -176,6 +235,27 @@ export default function StorefrontPage() {
 
   return (
     <div className="min-h-screen bg-background">
+      {trackedOrder && (
+        <div className="bg-primary/10 border-b border-primary/20">
+          <div className="max-w-6xl mx-auto px-4 py-4">
+            <div className="flex items-center gap-2 text-sm">
+              <div className="bg-primary text-primary-foreground rounded-full px-3 py-1 text-xs font-bold">
+                {trackedOrder.trackingId}
+              </div>
+              <span className="font-medium">
+                {trackedOrder.status === 'CONFIRMED' ? 'Commande confirmée' :
+                 trackedOrder.status === 'DELIVERED' ? 'Commande livrée' :
+                 trackedOrder.status === 'CANCELLED' ? 'Commande annulée' :
+                 `Statut: ${trackedOrder.status}`}
+              </span>
+              <span className="text-muted-foreground">
+                — {formatXOF(trackedOrder.total || 0)}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
       <header className="border-b bg-white sticky top-0 z-40">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <div>
@@ -183,16 +263,18 @@ export default function StorefrontPage() {
             <p className="text-xs text-muted-foreground">Boutique en ligne</p>
           </div>
           <div className="flex items-center gap-3">
-            {cart.length > 0 && (
+            {cart.length > 0 && !trackedOrder && (
               <div className="text-right">
                 <p className="text-sm font-medium">{cart.length} article(s)</p>
                 <p className="text-xs text-muted-foreground">{formatXOF(cartTotal)}</p>
               </div>
             )}
-            <Button size="sm" disabled={cart.length === 0} onClick={handleWhatsAppOrder}>
-              <Phone className="w-4 h-4 mr-1" />
-              Commander
-            </Button>
+            {!trackedOrder && (
+              <Button size="sm" disabled={cart.length === 0} onClick={handleWhatsAppOrder}>
+                <Phone className="w-4 h-4 mr-1" />
+                Commander
+              </Button>
+            )}
           </div>
         </div>
       </header>
