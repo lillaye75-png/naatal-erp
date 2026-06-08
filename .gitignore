@@ -33,6 +33,23 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# Firebase service account (SECRET - never commit)
+firebase-service-account.json
+sununaatal-firebase-adminsdk-fbsvc-0553154faf.json
+firebase.txt
+
+# debug & build logs
+*.log
+build_*.txt
+dev_*.txt
+emu_*.txt
+next_output.log
+start-emulators.cmd
+
+# planning docs
+plan/
+what add remove fix on naatal erp.txt
+
 # vercel
 .vercel
 

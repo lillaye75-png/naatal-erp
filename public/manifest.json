@@ -1,0 +1,14 @@
+{
+  "name": "Naatal ERP — Gestion commerciale",
+  "short_name": "Naatal",
+  "description": "ERP pour les commerces en Afrique de l'Ouest — hors-ligne, mobile, rapide",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#0F172A",
+  "theme_color": "#1E40AF",
+  "orientation": "portrait-primary",
+  "categories": ["business", "finance", "productivity"],
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}
