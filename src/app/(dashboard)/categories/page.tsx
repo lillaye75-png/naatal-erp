@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { collection, query, where, getDocs, addDoc, updateDoc, deleteDoc, doc, Timestamp } from "firebase/firestore"
+import { collection, query, where, getDocs, addDoc, updateDoc, doc, Timestamp } from "firebase/firestore"
 import { initializeFirebase } from "@/lib/firebase"
 import { useAuthStore } from "@/stores/auth.store"
 import { Button } from "@/components/ui/button"
@@ -40,7 +40,7 @@ export default function CategoriesPage() {
     try {
       const { db } = await initializeFirebase()
       const snap = await getDocs(
-        query(collection(db, 'categories'), where('tenantId', '==', tenantId)),
+        query(collection(db, 'categories'), where('tenantId', '==', tenantId), where('isDeleted', '==', false)),
       )
       setCategories(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Category)))
     } catch (err) {
@@ -92,7 +92,7 @@ export default function CategoriesPage() {
     if (!confirm('Supprimer cette catégorie ?')) return
     try {
       const { db } = await initializeFirebase()
-      await deleteDoc(doc(db, 'categories', id))
+      await updateDoc(doc(db, 'categories', id), { isDeleted: true, updatedAt: Timestamp.now().toMillis().toString(), updatedBy: userId })
       toast.success('Catégorie supprimée')
       fetchCategories()
     } catch {

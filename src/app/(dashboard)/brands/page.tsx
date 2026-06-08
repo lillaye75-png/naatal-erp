@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { collection, query, where, getDocs, addDoc, updateDoc, deleteDoc, doc, Timestamp } from "firebase/firestore"
+import { collection, query, where, getDocs, addDoc, updateDoc, doc, Timestamp } from "firebase/firestore"
 import { initializeFirebase } from "@/lib/firebase"
 import { useAuthStore } from "@/stores/auth.store"
 import { Button } from "@/components/ui/button"
@@ -40,7 +40,7 @@ export default function BrandsPage() {
     try {
       const { db } = await initializeFirebase()
       const snap = await getDocs(
-        query(collection(db, 'brands'), where('tenantId', '==', tenantId)),
+        query(collection(db, 'brands'), where('tenantId', '==', tenantId), where('isDeleted', '==', false)),
       )
       setBrands(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Brand)))
     } catch (err) {
@@ -92,7 +92,7 @@ export default function BrandsPage() {
     if (!confirm('Supprimer cette marque ?')) return
     try {
       const { db } = await initializeFirebase()
-      await deleteDoc(doc(db, 'brands', id))
+      await updateDoc(doc(db, 'brands', id), { isDeleted: true, updatedAt: Timestamp.now().toMillis().toString(), updatedBy: userId })
       toast.success('Marque supprimée')
       fetchBrands()
     } catch {
