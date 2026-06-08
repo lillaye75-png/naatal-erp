@@ -14,6 +14,7 @@ export async function getDebts(tenantId: string) {
   const q = query(
     collection(db, 'sales'),
     where('tenantId', '==', tenantId),
+    where('isDeleted', '==', false),
     where('paymentStatus', 'in', ['UNPAID', 'PARTIAL']),
     orderBy('createdAt', 'desc'),
   )
