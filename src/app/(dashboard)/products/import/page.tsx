@@ -72,12 +72,14 @@ export default function ProductsImportPage() {
   async function handleDownloadTemplate() {
     const XLSX = await import('xlsx')
     const ws = XLSX.utils.aoa_to_sheet([
-      ['name', 'sku', 'price', 'costPrice', 'minStock', 'barcode', 'isSoldOnline'],
-      ['Huile 1L', 'HUILE-001', '1500', '1000', '5', '', 'oui'],
-      ['Riz 5kg', 'RIZ-001', '3500', '2800', '10', '', 'non'],
+      ['name', 'sku', 'price', 'costPrice', 'categoryId', 'brandId', 'unitId', 'warehouseId', 'minStock', 'initialStock', 'barcode', 'imageUrl', 'description', 'isSoldOnline'],
+      ['Huile d olive 1L', 'HUILE-001', '1500', '1000', 'cat001', 'br001', 'l', 'wh001', '5', '50', '123456789', 'https://exemple.com/huile.jpg', 'Huile d olive vierge 1L', 'oui'],
+      ['Riz 5kg', 'RIZ-001', '3500', '2800', 'cat002', 'br002', 'kg', 'wh001', '10', '30', '', '', 'Riz parfumé 5kg', 'non'],
+      ['Savon liquide', 'SAV-001', '800', '500', 'cat003', 'br003', 'piece', 'wh002', '20', '100', '', '', 'Savon liquide 500ml', 'oui'],
     ])
     ws['!cols'] = [
-      { wch: 25 }, { wch: 15 }, { wch: 10 }, { wch: 15 }, { wch: 12 }, { wch: 15 }, { wch: 14 },
+      { wch: 25 }, { wch: 15 }, { wch: 10 }, { wch: 15 }, { wch: 12 },
+      { wch: 12 }, { wch: 8 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 15 }, { wch: 30 }, { wch: 30 }, { wch: 14 },
     ]
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Produits')
@@ -88,13 +90,13 @@ export default function ProductsImportPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Importer des produits</h1>
-        <p className="text-sm text-muted-foreground mt-1">Importez vos produits depuis un fichier CSV</p>
+        <p className="text-sm text-muted-foreground mt-1">Importez vos produits depuis un fichier CSV ou Excel</p>
       </div>
       <Card>
         <CardHeader>
           <CardTitle className="text-sm flex items-center gap-2">
             <Upload className="w-4 h-4" />
-            Fichier CSV
+            Fichier CSV ou Excel
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -104,12 +106,19 @@ export default function ProductsImportPage() {
               { key: "sku", label: "SKU" },
               { key: "price", label: "Prix" },
               { key: "costPrice", label: "Prix de revient" },
+              { key: "categoryId", label: "Catégorie" },
+              { key: "brandId", label: "Marque" },
+              { key: "unitId", label: "Unité" },
+              { key: "warehouseId", label: "Entrepôt" },
               { key: "minStock", label: "Stock minimum" },
+              { key: "initialStock", label: "Stock initial" },
               { key: "barcode", label: "Code-barres" },
+              { key: "imageUrl", label: "URL Image" },
+              { key: "description", label: "Description" },
               { key: "isSoldOnline", label: "Vente en ligne (oui/non)" },
             ]}
             onImport={handleImport}
-            title="Choisir un fichier CSV"
+            title="Choisir un fichier CSV ou Excel"
           />
           <Button variant="ghost" size="sm" onClick={handleDownloadTemplate}>
             <Download className="w-4 h-4 mr-1" />

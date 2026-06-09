@@ -13,12 +13,21 @@ async function getFirebase() {
   return initializeFirebase()
 }
 
-function mapFirebaseUser(fbUser: any): any {
+import type { User as FirebaseUser } from 'firebase/auth'
+
+interface MappedUser {
+  id: string
+  email: string
+  displayName: string
+  tenantId: string
+}
+
+function mapFirebaseUser(fbUser: FirebaseUser): MappedUser {
   return {
     id: fbUser.uid,
     email: fbUser.email || '',
     displayName: fbUser.displayName || '',
-    tenantId: fbUser.tenantId || null,
+    tenantId: '',
   }
 }
 
@@ -46,19 +55,19 @@ export async function login(email: string, password: string) {
   const fbUser = mapFirebaseUser(credential.user)
   const tokenResult = await credential.user.getIdTokenResult().catch(() => null)
   if (tokenResult?.claims?.tenantId) {
-    fbUser.tenantId = tokenResult.claims.tenantId
+    fbUser.tenantId = tokenResult.claims.tenantId as string
   } else {
     try {
       const userDoc = await getDoc(doc(db, 'users', credential.user.uid))
       if (userDoc.exists()) {
-        fbUser.tenantId = userDoc.data().tenantId
+        fbUser.tenantId = userDoc.data().tenantId || ''
         await setCustomClaims(credential.user.uid, {
           tenantId: fbUser.tenantId,
           role: userDoc.data().roleId || 'OWNER',
         })
       }
-    } catch {
-      // tenantId will be loaded via onAuthChange listener
+    } catch (err) {
+      console.error('Failed to load user tenantId on login:', err)
     }
   }
   return fbUser
@@ -114,28 +123,54 @@ export async function logout() {
   await signOut(auth)
 }
 
-export function onAuthChange(callback: (user: any) => void) {
+export function onAuthChange(callback: (user: MappedUser | null) => void) {
   let unsub: (() => void) | null = null
   let cancelled = false
 
   initializeFirebase().then(({ auth, db }) => {
     if (cancelled) return
-    unsub = onAuthStateChanged(auth, async (fbUser: any) => {
+    unsub = onAuthStateChanged(auth, async (fbUser: FirebaseUser | null) => {
       if (fbUser) {
         const userData = mapFirebaseUser(fbUser)
         try {
           const tokenResult = await fbUser.getIdTokenResult()
           if (tokenResult.claims?.tenantId) {
-            userData.tenantId = tokenResult.claims.tenantId
+            userData.tenantId = tokenResult.claims.tenantId as string
           }
-        } catch {}
+        } catch (err) {
+          console.error('Failed to get token claims:', err)
+        }
         if (!userData.tenantId) {
+          let tenantId = ''
           try {
             const userDoc = await getDoc(doc(db, 'users', fbUser.uid))
             if (userDoc.exists()) {
-              userData.tenantId = userDoc.data().tenantId
+              tenantId = userDoc.data().tenantId || ''
             }
-          } catch {}
+          } catch (err) {
+            console.error('Failed to fetch user doc:', err)
+          }
+          if (!tenantId) {
+            try {
+              const tenantSnap = await getDoc(doc(db, 'tenants', fbUser.uid))
+              if (tenantSnap.exists()) {
+                tenantId = fbUser.uid
+              }
+            } catch (err) {
+              console.error('Failed to fetch tenant doc:', err)
+            }
+          }
+          if (tenantId) {
+            userData.tenantId = tenantId
+            try {
+              await setCustomClaims(fbUser.uid, {
+                tenantId,
+                role: 'OWNER',
+              })
+            } catch (err) {
+              console.error('Failed to set custom claims:', err)
+            }
+          }
         }
         if (!cancelled) callback(userData)
       } else {

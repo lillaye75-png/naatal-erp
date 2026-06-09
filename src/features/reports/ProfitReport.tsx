@@ -25,6 +25,7 @@ export function ProfitReport({ startDate, endDate }: { startDate: number; endDat
   const [error, setError] = useState<string | null>(null)
   const [dailyData, setDailyData] = useState<DailyPNL[]>([])
   const [totals, setTotals] = useState({ revenue: 0, cogs: 0, profit: 0, expenseSum: 0 })
+  const [exportingPdf, setExportingPdf] = useState(false)
   const tenantId = useAuthStore((s) => s.tenant?.id)
 
   const load = useCallback(async () => {
@@ -42,7 +43,7 @@ export function ProfitReport({ startDate, endDate }: { startDate: number; endDat
         .map((d) => ({ id: d.id, ...d.data() } as any))
         .filter((s) => {
           const ts = parseInt(s.createdAt || '0')
-          return ts >= startDate && ts <= endDate
+          return ts >= startDate && ts <= endDate && s.invoiceType !== 'PROFORMA' && s.invoiceType !== 'QUOTATION'
         })
 
       let totalRevenue = 0
@@ -57,6 +58,7 @@ export function ProfitReport({ startDate, endDate }: { startDate: number; endDat
 
         const items = s.items || []
         for (const item of items) {
+          if (item.productId === '__quick_pos__') continue
           const prodSnap = await getDocs(query(
             collection(db, 'products'),
             where('__name__', '==', item.productId),
@@ -78,7 +80,7 @@ export function ProfitReport({ startDate, endDate }: { startDate: number; endDat
       const expenseSum = expensesSnap.docs
         .map((d) => d.data() as any)
         .filter((e) => {
-          const ts = parseInt(e.date || '0')
+          const ts = parseInt(e.date || e.createdAt || '0')
           return ts >= startDate && ts <= endDate
         })
         .reduce((sum, e) => sum + (e.amount || 0), 0)
@@ -98,6 +100,48 @@ export function ProfitReport({ startDate, endDate }: { startDate: number; endDat
   }, [tenantId, startDate, endDate])
 
   useEffect(() => { load() }, [load])
+
+  const generateReportHTML = (data: typeof dailyData, t: typeof totals) => {
+    const dailyRows = data.map((d) => `
+      <tr>
+        <td style="padding:6px 12px;border:1px solid #ddd;text-align:left">${d.date}</td>
+        <td style="padding:6px 12px;border:1px solid #ddd;text-align:right">${formatXOF(d.revenue)}</td>
+        <td style="padding:6px 12px;border:1px solid #ddd;text-align:right">${formatXOF(d.cogs)}</td>
+        <td style="padding:6px 12px;border:1px solid #ddd;text-align:right">${formatXOF(d.profit)}</td>
+      </tr>`).join('')
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Rapport de profit</title>
+<style>body{font-family:Arial,sans-serif;font-size:13px;color:#333;padding:30px}
+h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:20px 0 8px}
+table{width:100%;border-collapse:collapse;margin-bottom:16px}
+th{background:#f5f5f5;padding:8px 12px;border:1px solid #ddd;text-align:left;font-size:12px}
+td{padding:6px 12px;border:1px solid #ddd}.title{color:#666;font-size:12px;margin-bottom:20px}
+.summary td:first-child{font-weight:600;width:220px}
+.summary td:last-child{text-align:right;font-weight:700}
+.footer{margin-top:30px;font-size:11px;color:#999;text-align:center}</style></head><body>
+<h1>Rapport de profit</h1>
+<p class="title">Période du ${new Date(startDate).toLocaleDateString('fr-FR')} au ${new Date(endDate).toLocaleDateString('fr-FR')}</p>
+<h2>Résumé</h2>
+<table class="summary">
+<tr><td>Revenus</td><td>${formatXOF(t.revenue)}</td></tr>
+<tr><td>COGS</td><td>${formatXOF(t.cogs)}</td></tr>
+<tr><td>Profit brut</td><td>${formatXOF(t.profit)}</td></tr>
+<tr><td>Dépenses</td><td>${formatXOF(t.expenseSum)}</td></tr>
+<tr><td>Profit net</td><td>${formatXOF(t.profit - t.expenseSum)}</td></tr>
+<tr><td>Marge</td><td>${t.revenue > 0 ? ((t.profit / t.revenue) * 100).toFixed(1) : 0}%</td></tr>
+</table>
+<h2>Évolution quotidienne</h2>
+<table><thead><tr><th>Date</th><th>Revenu</th><th>COGS</th><th>Profit</th></tr></thead><tbody>${dailyRows}</tbody></table>
+<p class="footer">Généré par Naatal ERP</p></body></html>`
+  }
+
+  const handleExportPdf = async () => {
+    const printWindow = window.open('', '_blank')
+    if (!printWindow) { toast.error("Veuillez autoriser les popups"); return }
+    const content = generateReportHTML(dailyData, totals)
+    printWindow.document.write(content)
+    printWindow.document.close()
+    printWindow.print()
+  }
 
   if (loading) return <TableSkeleton />
   if (error) return (
@@ -128,6 +172,7 @@ export function ProfitReport({ startDate, endDate }: { startDate: number; endDat
             { key: "profit", label: "Profit" },
           ]}
           filename="rapport-profit"
+          onExportPdf={handleExportPdf}
         />
       </div>
 

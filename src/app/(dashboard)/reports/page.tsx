@@ -8,9 +8,10 @@ import { InventoryReport } from "@/features/reports/InventoryReport"
 import { ProfitReport } from "@/features/reports/ProfitReport"
 import { DebtReport } from "@/features/reports/DebtReport"
 import { CashRegisterReport } from "@/features/reports/CashRegisterReport"
+import { AccountingAssistant } from "@/features/reports/AccountingAssistant"
 import { cn } from "@/lib/utils"
 
-type ReportTab = 'sales' | 'inventory' | 'profit' | 'debt' | 'cash'
+type ReportTab = 'sales' | 'inventory' | 'profit' | 'debt' | 'cash' | 'ai'
 
 const TABS: { key: ReportTab; label: string }[] = [
   { key: 'sales', label: 'Ventes' },
@@ -18,6 +19,7 @@ const TABS: { key: ReportTab; label: string }[] = [
   { key: 'inventory', label: 'Stock' },
   { key: 'debt', label: 'Dettes' },
   { key: 'cash', label: 'Caisse' },
+  { key: 'ai', label: 'Assistant IA' },
 ]
 
 export default function ReportsPage() {
@@ -79,6 +81,7 @@ export default function ReportsPage() {
       {activeTab === 'profit' && <ProfitReport startDate={dateRange.start} endDate={dateRange.end} />}
       {activeTab === 'debt' && <DebtReport />}
       {activeTab === 'cash' && <CashRegisterReport startDate={dateRange.start} endDate={dateRange.end} />}
+      {activeTab === 'ai' && <AccountingAssistant startDate={dateRange.start} endDate={dateRange.end} />}
     </div>
   )
 }

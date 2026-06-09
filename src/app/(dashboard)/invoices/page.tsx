@@ -1,8 +1,10 @@
 "use client"
 
 import { useState, useEffect, useCallback, useMemo } from "react"
-import { FileText } from "lucide-react"
+import { FileText, Calendar } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { TableSkeleton } from "@/components/shared/Skeleton"
 import { useAuthStore } from "@/stores/auth.store"
 import { getSales } from "@/repositories/sale.repository"
@@ -20,6 +22,19 @@ const TABS = [
   { value: 'UNPAID', label: 'Impayées' },
 ] as const
 
+function toLocalDateString(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function parseLocalDate(s: string): number {
+  if (!s) return 0
+  const [y, m, d] = s.split('-').map(Number)
+  return new Date(y, m - 1, d).getTime()
+}
+
 export default function InvoicesPage() {
   const [sales, setSales] = useState<Sale[]>([])
   const [loading, setLoading] = useState(true)
@@ -27,16 +42,37 @@ export default function InvoicesPage() {
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null)
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null)
   const [activeTab, setActiveTab] = useState<string>('ALL')
+  const [dateFilter, setDateFilter] = useState<string>('TODAY')
+  const [startDate, setStartDate] = useState(toLocalDateString(new Date()))
+  const [endDate, setEndDate] = useState(toLocalDateString(new Date()))
   const tenantId = useAuthStore((s) => s.tenant?.id)
   const tenant = useAuthStore((s) => s.tenant)
 
   const filteredSales = useMemo(() => {
-    if (activeTab === 'ALL') return sales
-    if (activeTab === 'PENDING') return sales.filter((s) => s.paymentStatus === 'PENDING' && (s.paymentMethod === 'WAVE' || s.paymentMethod === 'OM'))
-    if (activeTab === 'PAID') return sales.filter((s) => s.paymentStatus === 'PAID')
-    if (activeTab === 'UNPAID') return sales.filter((s) => s.paymentStatus === 'UNPAID' || s.paymentStatus === 'PARTIAL')
-    return sales
-  }, [sales, activeTab])
+    let base = sales
+    if (dateFilter === 'TODAY') {
+      const now = new Date()
+      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+      base = base.filter((s) => {
+        const ts = parseInt(s.createdAt || '0')
+        return !isNaN(ts) && ts >= start
+      })
+    } else if (dateFilter === 'CUSTOM') {
+      const start = parseLocalDate(startDate)
+      const end = parseLocalDate(endDate) + 86400000
+      base = base.filter((s) => {
+        const ts = parseInt(s.createdAt || '0')
+        return !isNaN(ts) && ts >= start && ts < end
+      })
+    }
+    if (activeTab === 'ALL') return base
+    if (activeTab === 'PENDING') return base.filter((s) => s.paymentStatus === 'PENDING' && (s.paymentMethod === 'WAVE' || s.paymentMethod === 'OM'))
+    if (activeTab === 'PAID') return base.filter((s) => s.paymentStatus === 'PAID')
+    if (activeTab === 'UNPAID') return base.filter((s) => s.paymentStatus === 'UNPAID' || s.paymentStatus === 'PARTIAL')
+    return base
+  }, [sales, activeTab, dateFilter, startDate, endDate])
+
+  const totalSales = filteredSales.reduce((sum, s) => sum + s.total, 0)
 
   const load = useCallback(async () => {
     if (!tenantId) { setLoading(false); return }
@@ -86,6 +122,48 @@ export default function InvoicesPage() {
         <div>
           <h1 className="text-2xl font-semibold">Factures</h1>
           <p className="text-sm text-muted-foreground mt-1">Gérez vos factures</p>
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex gap-1">
+          <button
+            type="button"
+            onClick={() => setDateFilter('TODAY')}
+            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+              dateFilter === 'TODAY'
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-muted text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            Aujourd'hui
+          </button>
+          <button
+            type="button"
+            onClick={() => setDateFilter('CUSTOM')}
+            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex items-center gap-1 ${
+              dateFilter === 'CUSTOM'
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-muted text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <Calendar className="w-3 h-3" />
+            Personnalisé
+          </button>
+        </div>
+        {dateFilter === 'CUSTOM' && (
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
+              <Label className="text-xs">Du</Label>
+              <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-36 h-8 text-xs" />
+            </div>
+            <div className="flex items-center gap-1">
+              <Label className="text-xs">Au</Label>
+              <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-36 h-8 text-xs" />
+            </div>
+          </div>
+        )}
+        <div className="text-sm font-medium">
+          Total des ventes: {formatXOF(totalSales)}
         </div>
       </div>
       <div className="flex gap-1 border-b">

@@ -57,6 +57,7 @@ export function InventoryReport() {
         const movSnap = await getDocs(query(
           collection(db, 'inventory_movements'),
           where('productId', '==', p.id),
+          where('tenantId', '==', tenantId),
         ))
         const stock = movSnap.docs.reduce((sum, d) => sum + (d.data().qty || 0), 0)
         totalValue += stock * (p.costPrice || 0)
@@ -78,12 +79,14 @@ export function InventoryReport() {
   useEffect(() => { load() }, [load])
 
   const loadMovements = async (productId: string) => {
+    if (!tenantId) return
     setMovementsLoading(true)
     try {
       const { db } = await initializeFirebase()
       const snap = await getDocs(query(
         collection(db, 'inventory_movements'),
         where('productId', '==', productId),
+        where('tenantId', '==', tenantId),
         orderBy('createdAt', 'desc'),
       ))
       setMovements(snap.docs.map((d) => ({ id: d.id, ...d.data() } as any)))

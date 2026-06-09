@@ -1,10 +1,12 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import {
   Select,
@@ -14,7 +16,11 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { ImageUpload } from "@/components/shared/ImageUpload"
-import type { Product } from "@/types"
+import { useAuthStore } from "@/stores/auth.store"
+import { getCategories, getBrands } from "@/repositories/product.repository"
+import { collection, getDocs, query, where } from "firebase/firestore"
+import { initializeFirebase } from "@/lib/firebase"
+import type { Product, Category, Brand, Warehouse } from "@/types"
 
 const productSchema = z.object({
   name: z.string().min(1, "Nom requis"),
@@ -24,9 +30,12 @@ const productSchema = z.object({
   categoryId: z.string().optional(),
   brandId: z.string().optional(),
   unitId: z.string().optional(),
+  warehouseId: z.string().optional(),
   minStock: z.coerce.number().min(0).default(0),
+  initialStock: z.coerce.number().min(0).default(0),
   barcode: z.string().optional(),
   imageUrl: z.string().optional(),
+  description: z.string().optional(),
   isSoldOnline: z.boolean().default(false),
 })
 
@@ -39,6 +48,21 @@ interface ProductFormProps {
 }
 
 export function ProductForm({ product, onSubmit, onCancel }: ProductFormProps) {
+  const tenantId = useAuthStore((s) => s.tenant?.id)
+  const [categories, setCategories] = useState<Category[]>([])
+  const [brands, setBrands] = useState<Brand[]>([])
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([])
+
+  useEffect(() => {
+    if (!tenantId) return
+    getCategories(tenantId).then(setCategories)
+    getBrands(tenantId).then(setBrands)
+    initializeFirebase().then(({ db }) =>
+      getDocs(query(collection(db, 'warehouses'), where('tenantId', '==', tenantId)))
+        .then((snap) => setWarehouses(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Warehouse))))
+    )
+  }, [tenantId])
+
   const {
     register,
     handleSubmit,
@@ -56,9 +80,12 @@ export function ProductForm({ product, onSubmit, onCancel }: ProductFormProps) {
           categoryId: product.categoryId,
           brandId: product.brandId,
           unitId: product.unitId,
+          warehouseId: product.warehouseId,
           minStock: product.minStock,
+          initialStock: 0,
           barcode: product.barcode,
           imageUrl: product.imageUrl || '',
+          description: product.description || '',
           isSoldOnline: product.isSoldOnline ?? false,
         }
       : {
@@ -69,12 +96,17 @@ export function ProductForm({ product, onSubmit, onCancel }: ProductFormProps) {
           minStock: 0,
           barcode: "",
           imageUrl: "",
+          description: "",
           isSoldOnline: false,
         },
   })
 
   const imageUrl = watch('imageUrl')
   const isSoldOnline = watch('isSoldOnline')
+  const warehouseId = watch('warehouseId')
+  const categoryId = watch('categoryId')
+  const brandId = watch('brandId')
+  const unitId = watch('unitId')
 
   return (
     <form method="POST" onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -124,24 +156,82 @@ export function ProductForm({ product, onSubmit, onCancel }: ProductFormProps) {
           <Input id="minStock" type="number" {...register("minStock")} placeholder="0" />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="unitId">Unité</Label>
+          <Label htmlFor="initialStock">Stock initial</Label>
+          <Input id="initialStock" type="number" {...register("initialStock")} placeholder="0" />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="warehouseId">Entrepôt</Label>
           <Select
-            value={product?.unitId || ""}
-            onValueChange={(v) => {
-              const val = v ?? ""
-              setValue("unitId", val || undefined)
-            }}
+            value={warehouseId || ""}
+            onValueChange={(v) => setValue("warehouseId", v || undefined)}
           >
             <SelectTrigger>
               <SelectValue placeholder="Sélectionner" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="piece">Pièce</SelectItem>
-              <SelectItem value="kg">Kg</SelectItem>
-              <SelectItem value="l">Litre</SelectItem>
+              {warehouses.map((w) => (
+                <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
+        <div className="space-y-2">
+          <Label htmlFor="categoryId">Catégorie</Label>
+          <Select
+            value={categoryId || ""}
+            onValueChange={(v) => setValue("categoryId", v || undefined)}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Sélectionner" />
+            </SelectTrigger>
+            <SelectContent>
+              {categories.map((cat) => (
+                <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="brandId">Marque</Label>
+          <Select
+            value={brandId || ""}
+            onValueChange={(v) => setValue("brandId", v || undefined)}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Sélectionner" />
+            </SelectTrigger>
+            <SelectContent>
+              {brands.map((brand) => (
+                <SelectItem key={brand.id} value={brand.id}>{brand.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="unitId">Unité</Label>
+        <Select
+          value={unitId || ""}
+          onValueChange={(v) => {
+            const val = v ?? ""
+            setValue("unitId", val || undefined)
+          }}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Sélectionner" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="piece">Pièce</SelectItem>
+            <SelectItem value="kg">Kg</SelectItem>
+            <SelectItem value="l">Litre</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="description">Description</Label>
+        <Textarea id="description" {...register("description")} placeholder="Description du produit (optionnelle)" />
       </div>
       <label className="flex items-center gap-2 cursor-pointer">
         <input

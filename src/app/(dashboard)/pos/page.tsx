@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
-import { ShoppingCart, Trash2, Plus, Minus, Search, Keyboard, Loader2, Maximize2, Minimize2, RefreshCw, Database, User, Wallet } from "lucide-react"
+import { ShoppingCart, Trash2, Plus, Minus, Search, Keyboard, Loader2, Maximize2, Minimize2, RefreshCw, Database, User, Wallet, ChevronDown } from "lucide-react"
 import { formatXOF } from "@/lib/currency"
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts"
 import { toast } from "sonner"
@@ -13,10 +13,20 @@ import { useCartStore } from "@/stores/cart.store"
 import { useOnSnapshot } from "@/hooks/useOnSnapshot"
 import { useOfflineStore } from "@/stores/offline.store"
 import { initializeFirebase } from "@/lib/firebase"
-import { collection, query, where, getDocs } from "firebase/firestore"
+import { collection, query, where, getDocs, type Firestore } from "firebase/firestore"
 import { cn } from "@/lib/utils"
 import { createSale } from "@/services/sale.service"
-import type { Product } from "@/types"
+import { createCustomer } from "@/repositories/customer.repository"
+import { InvoiceModal } from "@/components/shared/InvoiceModal"
+import { Label } from "@/components/ui/label"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { doc, getDoc } from "firebase/firestore"
+import type { Product, Sale, Invoice, Customer } from "@/types"
 
 const CACHE_PREFIX = 'naatal_products_cache_'
 const CACHE_EXPIRY_MS = 24 * 60 * 60 * 1000
@@ -50,7 +60,7 @@ export default function PosPage() {
   const [barcode, setBarcode] = useState("")
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
-  const [db, setDb] = useState<any>(null)
+  const [db, setDb] = useState<Firestore | null>(null)
   const [cachedProducts, setCachedProductsState] = useState<Product[]>(() =>
     tenantId ? getCachedProducts(tenantId)?.products || [] : []
   )
@@ -66,11 +76,35 @@ export default function PosPage() {
   const [selectedCustomerName, setSelectedCustomerName] = useState("")
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'WAVE' | 'OM' | 'DEBT'>('CASH')
   const [showCustomerSearch, setShowCustomerSearch] = useState(false)
+  const [discount, setDiscount] = useState(0)
+  const [tax, setTax] = useState(0)
+  const [invoiceType, setInvoiceType] = useState<'INVOICE' | 'PROFORMA' | 'QUOTATION' | 'CREDIT_NOTE'>('INVOICE')
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false)
+  const [createdSale, setCreatedSale] = useState<Sale | null>(null)
+  const [createdInvoice, setCreatedInvoice] = useState<Invoice | null>(null)
+  const [amountPaid, setAmountPaid] = useState(0)
+  const [showCustomerCreate, setShowCustomerCreate] = useState(false)
+  const [newCustomerName, setNewCustomerName] = useState("")
+  const [newCustomerPhone, setNewCustomerPhone] = useState("")
+  const [newCustomerEmail, setNewCustomerEmail] = useState("")
+  const [newCustomerAddress, setNewCustomerAddress] = useState("")
+  const [createdCustomer, setCreatedCustomer] = useState<Customer | null>(null)
+  const [taxRate, setTaxRate] = useState(18)
 
   useEffect(() => {
     if (!tenantId) return
     initializeFirebase().then(({ db: d }) => setDb(d))
   }, [tenantId])
+
+  useEffect(() => {
+    if (!db || !tenantId) return
+    getDocs(query(collection(db, 'settings'), where('tenantId', '==', tenantId)))
+      .then((snap) => {
+        const doc = snap.docs[0]
+        if (doc) setTaxRate((doc.data() as any)?.taxRate ?? 18)
+      })
+      .catch(() => {})
+  }, [db, tenantId])
 
   const productsQ = useMemo(
     () =>
@@ -140,9 +174,13 @@ export default function PosPage() {
   const addItemToStore = useCartStore((s) => s.addItem)
   const removeItemFromStore = useCartStore((s) => s.removeItem)
   const updateQtyInStore = useCartStore((s) => s.updateQty)
+  const updatePriceInStore = useCartStore((s) => s.updatePrice)
   const clearCartInStore = useCartStore((s) => s.clearCart)
 
-  const total = items.reduce((sum, i) => sum + i.price * i.qty, 0)
+  const subtotal = items.reduce((sum, i) => sum + i.price * i.qty, 0)
+  const totalBeforeTax = Math.max(0, subtotal - discount)
+  const computedTax = Math.round(totalBeforeTax * taxRate / 100)
+  const total = totalBeforeTax + computedTax
 
   const addItem = useCallback((product: Product) => {
     addItemToStore({ productId: product.id, name: product.name, price: product.price, qty: 1, imageUrl: product.imageUrl })
@@ -173,6 +211,7 @@ export default function PosPage() {
       toast.error("Session expirée")
       return
     }
+    const paid = paymentMethod === 'DEBT' ? amountPaid : total
     try {
       const result = await createSale({
         tenantId,
@@ -184,21 +223,33 @@ export default function PosPage() {
           unitPrice: i.price,
           productName: i.name,
         })),
-        subtotal: total,
-        discount: 0,
-        tax: 0,
+        subtotal,
+        discount,
+        tax: computedTax,
         total,
         paymentMethod,
-        amountPaid: paymentMethod === 'DEBT' ? 0 : total,
+        amountPaid: paid,
+        invoiceType,
       })
       if (result.saleId !== 'offline') {
-        toast.success(`Vente enregistrée — Facture ${result.invoiceNumber}`)
+        const { db } = await initializeFirebase()
+        const [saleSnap, invoiceSnap, custSnap] = await Promise.all([
+          getDoc(doc(db, 'sales', result.saleId)),
+          getDoc(doc(db, 'invoices', result.invoiceId)),
+          selectedCustomerId ? getDoc(doc(db, 'customers', selectedCustomerId)) : Promise.resolve(null),
+        ])
+        if (saleSnap.exists()) setCreatedSale({ id: result.saleId, ...saleSnap.data() } as Sale)
+        if (invoiceSnap.exists()) setCreatedInvoice({ id: result.invoiceId, ...invoiceSnap.data() } as Invoice)
+        if (custSnap?.exists()) setCreatedCustomer({ id: custSnap.id, ...custSnap.data() } as Customer)
+        setShowInvoiceModal(true)
+        clearCartInStore()
+      } else {
+        clearCartInStore()
       }
-      clearCartInStore()
     } catch (err: any) {
       toast.error(err?.message || "Erreur lors du paiement")
     }
-  }, [items, total, tenantId, userId, clearCartInStore])
+  }, [items, subtotal, discount, computedTax, total, tenantId, userId, clearCartInStore, paymentMethod, amountPaid, selectedCustomerId, invoiceType])
 
   const handleBarcode = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && barcode.trim()) {
@@ -357,7 +408,13 @@ export default function PosPage() {
             <div key={item.productId} className="flex items-center gap-2 bg-muted/30 rounded-lg p-2">
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate">{item.name}</p>
-                <p className="text-xs text-muted-foreground">{formatXOF(item.price)}</p>
+                <Input
+                  type="number"
+                  min={0}
+                  value={item.price}
+                  onChange={(e) => updatePriceInStore(item.productId, Math.max(0, Number(e.target.value)))}
+                  className="h-6 text-xs w-20 mt-1"
+                />
               </div>
               <div className="flex items-center gap-1">
                 <Button variant="ghost" size="icon" className="w-6 h-6" onClick={() => updateQty(item.productId, item.qty - 1)}>
@@ -410,7 +467,23 @@ export default function PosPage() {
                         {c.phone && <span className="text-muted-foreground ml-2">{c.phone}</span>}
                       </button>
                     ))}
+                    <button
+                      className="w-full text-left px-3 py-1.5 text-xs text-primary font-medium hover:bg-muted transition-colors border-t"
+                      onMouseDown={() => { setShowCustomerSearch(false); setShowCustomerCreate(true); setNewCustomerName(''); setNewCustomerPhone(''); setNewCustomerEmail(''); setNewCustomerAddress('') }}
+                    >
+                      <Plus className="w-3 h-3 inline mr-1" />
+                      Créer un nouveau client
+                    </button>
                   </div>
+                )}
+                {customers.length === 0 && (
+                  <button
+                    className="w-full text-left px-3 py-1.5 text-xs text-primary font-medium hover:bg-muted transition-colors"
+                    onMouseDown={() => { setShowCustomerSearch(false); setShowCustomerCreate(true); setNewCustomerName(''); setNewCustomerPhone(''); setNewCustomerEmail(''); setNewCustomerAddress('') }}
+                  >
+                    <Plus className="w-3 h-3 inline mr-1" />
+                    Créer un nouveau client
+                  </button>
                 )}
               </div>
             ) : (
@@ -421,6 +494,79 @@ export default function PosPage() {
                 {selectedCustomerName || 'Ajouter un client (optionnel)'}
               </button>
             )}
+
+            <Dialog open={showCustomerCreate} onOpenChange={setShowCustomerCreate}>
+              <DialogContent className="sm:max-w-sm">
+                <DialogHeader>
+                  <DialogTitle>Nouveau client</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="posNewName">Nom *</Label>
+                    <Input
+                      id="posNewName"
+                      value={newCustomerName}
+                      onChange={(e) => setNewCustomerName(e.target.value)}
+                      placeholder="Nom du client"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="posNewPhone">Téléphone</Label>
+                    <Input
+                      id="posNewPhone"
+                      value={newCustomerPhone}
+                      onChange={(e) => setNewCustomerPhone(e.target.value)}
+                      placeholder="+221 XX XXX XX XX"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="posNewEmail">Email</Label>
+                    <Input
+                      id="posNewEmail"
+                      type="email"
+                      value={newCustomerEmail}
+                      onChange={(e) => setNewCustomerEmail(e.target.value)}
+                      placeholder="client@exemple.com"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="posNewAddress">Adresse</Label>
+                    <Input
+                      id="posNewAddress"
+                      value={newCustomerAddress}
+                      onChange={(e) => setNewCustomerAddress(e.target.value)}
+                      placeholder="Adresse"
+                    />
+                  </div>
+                  <div className="flex gap-2 justify-end pt-2">
+                    <Button type="button" variant="outline" onClick={() => setShowCustomerCreate(false)}>
+                      Annuler
+                    </Button>
+                    <Button
+                      type="button"
+                      disabled={!newCustomerName.trim()}
+                      onClick={async () => {
+                        if (!tenantId || !userId) return
+                        try {
+                          const customerId = await createCustomer(
+                            { name: newCustomerName.trim(), phone: newCustomerPhone.trim(), email: newCustomerEmail.trim(), address: newCustomerAddress.trim(), tenantId },
+                            userId,
+                          )
+                          setSelectedCustomerId(customerId)
+                          setSelectedCustomerName(newCustomerName.trim())
+                          setShowCustomerCreate(false)
+                          toast.success("Client créé avec succès")
+                        } catch (err: any) {
+                          toast.error(err?.message || "Erreur lors de la création du client")
+                        }
+                      }}
+                    >
+                      Créer
+                    </Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
           </div>
 
           <div className="space-y-1">
@@ -438,7 +584,7 @@ export default function PosPage() {
                       ? 'bg-primary text-primary-foreground border-primary'
                       : 'bg-background text-muted-foreground border-border hover:bg-muted'
                   )}
-                  onClick={() => setPaymentMethod(m)}
+                  onClick={() => { setPaymentMethod(m); if (m !== 'DEBT') setAmountPaid(0) }}
                 >
                   {m === 'CASH' ? 'Espèces' : m === 'WAVE' ? 'Wave' : m === 'OM' ? 'Orange Money' : 'Dette'}
                 </button>
@@ -446,15 +592,93 @@ export default function PosPage() {
             </div>
           </div>
 
-          <div className="flex justify-between text-lg font-bold">
-            <span>Total</span>
-            <span>{formatXOF(total)}</span>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Type de facture</Label>
+            <div className="flex gap-1">
+              {(['INVOICE', 'PROFORMA', 'QUOTATION', 'CREDIT_NOTE'] as const).map((t) => (
+                <button
+                  key={t}
+                  className={cn(
+                    "flex-1 text-xs h-7 rounded-md border transition-colors",
+                    invoiceType === t
+                      ? 'bg-primary/10 text-primary border-primary'
+                      : 'bg-background text-muted-foreground border-border hover:bg-muted'
+                  )}
+                  onClick={() => setInvoiceType(t)}
+                >
+                  {t === 'INVOICE' ? 'Facture' : t === 'PROFORMA' ? 'Proforma' : t === 'QUOTATION' ? 'Devis' : 'Avoir'}
+                </button>
+              ))}
+            </div>
           </div>
+
+          <div className="flex items-center justify-between gap-2">
+            <Label className="text-xs text-muted-foreground shrink-0">Remise (FCFA)</Label>
+            <Input
+              type="number"
+              min={0}
+              value={discount}
+              onChange={(e) => setDiscount(Math.max(0, Number(e.target.value)))}
+              className="h-7 w-24 text-xs text-right"
+            />
+          </div>
+
+          {paymentMethod === 'DEBT' && (
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Montant payé (acompte)</Label>
+              <Input
+                type="number"
+                min={0}
+                step="any"
+                value={amountPaid}
+                onChange={(e) => setAmountPaid(Math.max(0, Number(e.target.value)))}
+                className="h-8 text-sm"
+                placeholder="0"
+              />
+              {amountPaid > 0 && amountPaid < total && (
+                <p className="text-xs text-muted-foreground">Reste à payer : {formatXOF(total - amountPaid)}</p>
+              )}
+              {amountPaid === 0 && (
+                <p className="text-xs text-muted-foreground">Cette vente sera enregistrée comme une dette</p>
+              )}
+            </div>
+          )}
+
+          <div className="space-y-1 border-t pt-2">
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>Sous-total</span>
+              <span>{formatXOF(subtotal)}</span>
+            </div>
+            {discount > 0 && (
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>Remise</span>
+                <span>-{formatXOF(discount)}</span>
+              </div>
+            )}
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>TVA ({taxRate}%)</span>
+              <span>{formatXOF(computedTax)}</span>
+            </div>
+            <div className="flex justify-between text-lg font-bold border-t pt-1">
+              <span>Total</span>
+              <span>{formatXOF(total)}</span>
+            </div>
+          </div>
+
           <Button className="w-full" size="lg" disabled={items.length === 0} onClick={handlePay}>
             {paymentMethod === 'DEBT' ? 'Enregistrer la dette' : 'Payer'}
           </Button>
         </div>
       </div>
+      <InvoiceModal
+        open={showInvoiceModal}
+        onOpenChange={(open) => { setShowInvoiceModal(open); if (!open) { clearCartInStore(); setDiscount(0); setAmountPaid(0); setInvoiceType('INVOICE') } }}
+        sale={createdSale}
+        invoice={createdInvoice}
+        customer={createdCustomer}
+        storeName={useAuthStore.getState().tenant?.name || 'Mon Magasin'}
+        storeLogo={useAuthStore.getState().tenant?.logoUrl}
+      />
     </div>
   )
 }

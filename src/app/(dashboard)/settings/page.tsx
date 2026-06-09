@@ -34,6 +34,7 @@ export default function SettingsPage() {
   const tenantId = tenant?.id
 
   const [form, setForm] = useState({
+    currency: "XOF",
     companyName: "",
     companyAddress: "",
     companyPhone: "",
@@ -72,7 +73,7 @@ export default function SettingsPage() {
 
       const tenantSnap = await getDoc(doc(db, 'tenants', tenantId))
       if (tenantSnap.exists()) {
-        const t = tenantSnap.data() as any
+        const t = tenantSnap.data() as { name?: string; address?: string; phone?: string; email?: string; logoUrl?: string; language?: string; currency?: string }
         setForm((prev) => ({
           ...prev,
           companyName: t.name || "",
@@ -81,6 +82,7 @@ export default function SettingsPage() {
           companyEmail: t.email || "",
           logoUrl: t.logoUrl || "",
           language: t.language || "fr",
+          currency: t.currency || "XOF",
         }))
       }
 
@@ -89,7 +91,7 @@ export default function SettingsPage() {
         where('tenantId', '==', tenantId),
       ))
       if (!snap.empty) {
-        const s = snap.docs[0].data() as any
+        const s = snap.docs[0].data() as { taxRate?: number; invoicePrefix?: string; invoiceFooter?: string; paymentTerms?: string; language?: string; defaultDueDays?: number; waveEnabled?: boolean; waveApiKey?: string; orangeMoneyEnabled?: boolean; orangeMoneyKey?: string; orangeMoneySecret?: string; testMode?: boolean }
         setSettingsId(snap.docs[0].id)
         setForm((prev) => ({
           ...prev,
@@ -113,7 +115,7 @@ export default function SettingsPage() {
         where('tenantId', '==', tenantId),
       ))
       if (!sfSnap.empty) {
-        const sf = sfSnap.docs[0].data() as any
+        const sf = sfSnap.docs[0].data() as { name?: string; slug?: string; tagline?: string; phone?: string; isActive?: boolean }
         setStorefrontId(sfSnap.docs[0].id)
         setForm((prev) => ({
           ...prev,
@@ -155,6 +157,7 @@ export default function SettingsPage() {
         email: form.companyEmail,
         logoUrl: form.logoUrl,
         language: form.language,
+        currency: form.currency,
         updatedAt: now,
       }).catch(() => null)
 
@@ -438,6 +441,20 @@ export default function SettingsPage() {
                     <SelectItem value="fr">Français</SelectItem>
                     <SelectItem value="en">English</SelectItem>
                     <SelectItem value="wo">Wolof</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Devise</Label>
+                <Select value={form.currency} onValueChange={(v) => setForm({ ...form, currency: v ?? 'XOF' })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="XOF">FCFA (XOF)</SelectItem>
+                    <SelectItem value="XAF">FCFA (XAF)</SelectItem>
+                    <SelectItem value="EUR">Euro (€)</SelectItem>
+                    <SelectItem value="USD">Dollar ($)</SelectItem>
+                    <SelectItem value="MAD">Dirham (DH)</SelectItem>
+                    <SelectItem value="GNF">Franc Guinéen (FG)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

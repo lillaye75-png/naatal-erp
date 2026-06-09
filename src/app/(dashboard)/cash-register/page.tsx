@@ -11,11 +11,11 @@ import { useCashRegisterStore } from "@/stores/cashRegister.store"
 import { formatXOF } from "@/lib/currency"
 import { Play, Square, Banknote, ArrowUpRight, ArrowDownRight } from "lucide-react"
 import { initializeFirebase } from "@/lib/firebase"
-import { collection, doc, setDoc, updateDoc, addDoc, serverTimestamp } from "firebase/firestore"
+import { collection, doc, setDoc, updateDoc, addDoc, getDocs, query, where, serverTimestamp } from "firebase/firestore"
 import { toast } from "sonner"
 
 export default function CashRegisterPage() {
-  const { sessionId, isOpen, openingBalance, currentBalance, setSession, addMovement, closeSession } = useCashRegisterStore()
+  const { sessionId, isOpen, openingBalance, currentBalance, setSession, addMovement, closeSession, tenantId: storeTenantId } = useCashRegisterStore()
   const [sessionDocId, setSessionDocId] = useState<string | null>(null)
   const [showOpenDialog, setShowOpenDialog] = useState(false)
   const [showCloseDialog, setShowCloseDialog] = useState(false)
@@ -25,10 +25,31 @@ export default function CashRegisterPage() {
   const [reason, setReason] = useState("")
   const [manualAmount, setManualAmount] = useState("")
 
+  useEffect(() => {
+    const restore = async () => {
+      if (isOpen) return
+      const tenantId = useAuthStore.getState().tenant?.id
+      if (!tenantId) return
+      const { db } = await initializeFirebase()
+      const snap = await getDocs(
+        query(collection(db, 'cash_registers'), where('tenantId', '==', tenantId), where('status', '==', 'OPEN')),
+      )
+      if (!snap.empty) {
+        const session = snap.docs[0].data() as any
+        const id = snap.docs[0].id
+        setSession(session.sessionId || id, session.openingBalance || 0, id)
+        setSessionDocId(id)
+        const movSnap = await getDocs(
+          query(collection(db, 'cash_movements'), where('sessionId', '==', session.sessionId || id)),
+        )
+        setMovements(movSnap.docs.map((d) => d.data() as any))
+      }
+    }
+    restore()
+  }, [])
+
   const handleOpen = async () => {
     const amount = parseInt(openingAmount) || 0
-    setSession("session-" + Date.now(), amount)
-    setShowOpenDialog(false)
 
     try {
       const tenantId = useAuthStore.getState().tenant?.id
@@ -40,12 +61,15 @@ export default function CashRegisterPage() {
       await setDoc(docRef, {
         id: docRef.id,
         tenantId,
-        openingAmount: amount,
+        openingBalance: amount,
+        currentBalance: amount,
         status: 'OPEN',
         openedAt: serverTimestamp(),
         openedBy: userId,
       })
+      setSession("session-" + Date.now(), amount, docRef.id)
       setSessionDocId(docRef.id)
+      setShowOpenDialog(false)
       toast.success("Caisse ouverte")
     } catch {
       toast.error("Erreur à l'ouverture de la caisse")
@@ -83,7 +107,7 @@ export default function CashRegisterPage() {
   const addManualMovement = async (type: 'IN' | 'OUT') => {
     const amount = parseInt(manualAmount) || 0
     if (amount <= 0) return
-    addMovement(type === 'IN' ? amount : -amount)
+    await addMovement(type === 'IN' ? amount : -amount)
     setMovements([...movements, { type, amount, reason }])
     setManualAmount("")
     setReason("")

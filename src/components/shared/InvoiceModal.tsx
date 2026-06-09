@@ -48,25 +48,37 @@ export function InvoiceModal({
 
   if (!sale || !invoice) return null
 
-  const paid = sale.paymentStatus === 'PAID' ? sale.total : (sale as any).amountPaid || 0
+  const invoiceTypeLabel: Record<string, string> = {
+    INVOICE: 'Facture',
+    PROFORMA: 'Proforma',
+    QUOTATION: 'Devis',
+    CREDIT_NOTE: 'Avoir',
+  }
+
+  const isCreditNote = sale.invoiceType === 'CREDIT_NOTE'
+  const isProforma = sale.invoiceType === 'PROFORMA' || sale.invoiceType === 'QUOTATION'
+  const paid = sale.paymentStatus === 'PAID' ? sale.total : sale.amountPaid || 0
   const balance = sale.paymentStatus === 'PAID' ? 0 : invoice.total - paid
+
+  const typeLabel = invoiceTypeLabel[sale.invoiceType] || 'Facture'
 
   const displayData: InvoiceDisplayData = {
     number: invoice.number,
     customerName: customer?.name || 'Client divers',
     items: sale.items.map((i) => ({
-      name: i.productId,
+      name: i.name || i.productId,
       qty: i.qty,
       price: i.unitPrice,
-      total: i.total,
+      total: isCreditNote ? -i.total : i.total,
     })),
-    subtotal: sale.subtotal,
-    tax: sale.tax,
-    discount: sale.discount || 0,
-    total: invoice.total,
-    paid,
-    balance,
+    subtotal: isCreditNote ? -sale.subtotal : sale.subtotal,
+    tax: isCreditNote ? -(sale.tax || 0) : (sale.tax || 0),
+    discount: isCreditNote ? -(sale.discount || 0) : (sale.discount || 0),
+    total: isCreditNote ? -invoice.total : invoice.total,
+    paid: isProforma ? 0 : paid,
+    balance: isProforma ? 0 : balance,
     dueDate: invoice.dueDate || undefined,
+    invoiceType: sale.invoiceType,
   }
 
   const pdfData = {
@@ -79,18 +91,19 @@ export function InvoiceModal({
     customerName: customer?.name || 'Client divers',
     customerPhone: customer?.phone,
     items: sale.items.map((i) => ({
-      name: i.productId,
-      qty: i.qty,
+      name: i.name || i.productId,
+      qty: isCreditNote ? -i.qty : i.qty,
       price: i.unitPrice,
-      total: i.total,
+      total: isCreditNote ? -i.total : i.total,
     })),
-    subtotal: sale.subtotal,
-    discount: sale.discount || 0,
-    tax: sale.tax,
-    total: invoice.total,
-    paid,
-    balance,
+    subtotal: isCreditNote ? -sale.subtotal : sale.subtotal,
+    discount: isCreditNote ? -(sale.discount || 0) : (sale.discount || 0),
+    tax: isCreditNote ? -(sale.tax || 0) : (sale.tax || 0),
+    total: isCreditNote ? -invoice.total : invoice.total,
+    paid: isProforma ? 0 : paid,
+    balance: isProforma ? 0 : balance,
     footerText: invoiceFooter,
+    invoiceType: sale.invoiceType,
   }
 
   const handlePrint = () => {
@@ -184,7 +197,7 @@ export function InvoiceModal({
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-w-md print:max-w-full print:shadow-none print:border-none print:p-0">
           <DialogHeader className="print:hidden">
-            <DialogTitle>Facture {invoice.number}</DialogTitle>
+            <DialogTitle>{typeLabel} {invoice.number}</DialogTitle>
           </DialogHeader>
 
           <div
@@ -230,12 +243,12 @@ export function InvoiceModal({
                 <Share2 className="w-4 h-4" /> WhatsApp
               </Button>
             )}
-            {customer?.phone && (
+            {!isProforma && customer?.phone && (
               <Button variant="outline" size="sm" onClick={handleSms}>
                 <MessageSquare className="w-4 h-4" /> SMS
               </Button>
             )}
-            {customer?.email && (
+            {!isProforma && customer?.email && (
               <Button variant="outline" size="sm" onClick={handleEmail}>
                 <Mail className="w-4 h-4" /> Email
               </Button>

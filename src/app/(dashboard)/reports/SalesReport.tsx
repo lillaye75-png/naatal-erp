@@ -40,7 +40,7 @@ export function SalesReport({ startDate, endDate }: { startDate: number; endDate
         .map((d) => ({ id: d.id, ...d.data() } as any))
         .filter((s) => {
           const ts = parseInt(s.createdAt || '0')
-          return ts >= startDate && ts <= endDate
+          return ts >= startDate && ts <= endDate && s.invoiceType !== 'PROFORMA' && s.invoiceType !== 'QUOTATION'
         })
 
       const totalRevenue = sales.reduce((sum, s) => sum + (s.total || 0), 0)
@@ -51,6 +51,7 @@ export function SalesReport({ startDate, endDate }: { startDate: number; endDate
       for (const sale of sales) {
         const items = sale.items || []
         for (const item of items) {
+          if (item.productId === '__quick_pos__') continue
           const prodSnap = await getDocs(query(
             collection(db, 'products'),
             where('__name__', '==', item.productId),
@@ -90,6 +91,7 @@ export function SalesReport({ startDate, endDate }: { startDate: number; endDate
         entry.revenue += s.total || 0
         const items = s.items || []
         for (const item of items) {
+          if (item.productId === '__quick_pos__') continue
           const prodSnap = await getDocs(query(
             collection(db, 'products'),
             where('__name__', '==', item.productId),
@@ -133,6 +135,52 @@ export function SalesReport({ startDate, endDate }: { startDate: number; endDate
     finally { setExporting(false) }
   }
 
+  const generateReportHTML = (reportData: typeof data, dailyRev: typeof dailyRevenue) => {
+    const summaryRows = [
+      ['Chiffre d\'affaires', formatXOF(reportData?.totalSales || 0)],
+      ['Revenu encaissé', formatXOF(reportData?.totalRevenue || 0)],
+      ['Profit brut', formatXOF(reportData?.grossProfit || 0)],
+      ['Marge bénéficiaire', (reportData?.profitMargin || 0).toFixed(1) + '%'],
+      ['Nombre de ventes', String(reportData?.salesCount || 0)],
+      ['COGS', formatXOF(reportData?.totalCogs || 0)],
+      ['Produits', String(reportData?.productCount || 0)],
+      ['Clients', String(reportData?.customerCount || 0)],
+      ['Valeur stock', formatXOF(reportData?.inventoryValue || 0)],
+    ]
+    const dailyRows = dailyRev.map((d) => `
+      <tr>
+        <td style="padding:6px 12px;border:1px solid #ddd;text-align:left">${d.date}</td>
+        <td style="padding:6px 12px;border:1px solid #ddd;text-align:right">${formatXOF(d.revenue)}</td>
+        <td style="padding:6px 12px;border:1px solid #ddd;text-align:right">${formatXOF(d.cogs)}</td>
+        <td style="padding:6px 12px;border:1px solid #ddd;text-align:right">${formatXOF(d.profit)}</td>
+      </tr>`).join('')
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Rapport des ventes</title>
+<style>body{font-family:Arial,sans-serif;font-size:13px;color:#333;padding:30px}
+h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:20px 0 8px}
+table{width:100%;border-collapse:collapse;margin-bottom:16px}
+th{background:#f5f5f5;padding:8px 12px;border:1px solid #ddd;text-align:left;font-size:12px}
+td{padding:6px 12px;border:1px solid #ddd}.title{color:#666;font-size:12px;margin-bottom:20px}
+.summary td:first-child{font-weight:600;width:200px}
+.summary td:last-child{text-align:right;font-weight:700}
+.footer{margin-top:30px;font-size:11px;color:#999;text-align:center}</style></head><body>
+<h1>Rapport des ventes</h1>
+<p class="title">Période du ${new Date(startDate).toLocaleDateString('fr-FR')} au ${new Date(endDate).toLocaleDateString('fr-FR')}</p>
+<h2>Résumé</h2>
+<table class="summary">${summaryRows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('')}</table>
+<h2>Revenus quotidiens</h2>
+<table><thead><tr><th>Date</th><th>Revenu</th><th>COGS</th><th>Profit</th></tr></thead><tbody>${dailyRows}</tbody></table>
+<p class="footer">Généré par Naatal ERP</p></body></html>`
+  }
+
+  const handleExportPdf = async () => {
+    const printWindow = window.open('', '_blank')
+    if (!printWindow) { toast.error("Veuillez autoriser les popups"); return }
+    const content = generateReportHTML(data, dailyRevenue)
+    printWindow.document.write(content)
+    printWindow.document.close()
+    printWindow.print()
+  }
+
   if (loading) return <TableSkeleton />
   if (error) return (
     <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -148,10 +196,16 @@ export function SalesReport({ startDate, endDate }: { startDate: number; endDate
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Rapport des ventes</h2>
-        <Button variant="outline" size="sm" onClick={handleExportSales} disabled={exporting}>
-          <Download className="w-3 h-3 mr-1" />
-          Exporter
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={handleExportSales} disabled={exporting}>
+            <Download className="w-3 h-3 mr-1" />
+            Exporter
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleExportPdf}>
+            <Download className="w-3 h-3 mr-1" />
+            Exporter PDF
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

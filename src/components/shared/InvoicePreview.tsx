@@ -13,6 +13,7 @@ export interface InvoiceDisplayData {
   paid: number
   balance: number
   dueDate?: string
+  invoiceType?: string
 }
 
 interface InvoicePreviewProps {
@@ -21,8 +22,20 @@ interface InvoicePreviewProps {
 }
 
 export function InvoicePreview({ data, storeName = "Mon Magasin" }: InvoicePreviewProps) {
-  const statusLabel = data.balance <= 0 ? 'Payée' : data.paid > 0 ? 'Partielle' : 'Impayée'
-  const statusColor = data.balance <= 0
+  const invoiceTypeLabel: Record<string, string> = {
+    INVOICE: 'Facture',
+    PROFORMA: 'Proforma',
+    QUOTATION: 'Devis',
+    CREDIT_NOTE: 'Avoir',
+  }
+
+  const isProforma = data.invoiceType === 'PROFORMA' || data.invoiceType === 'QUOTATION'
+  const isCreditNote = data.invoiceType === 'CREDIT_NOTE'
+  const label = invoiceTypeLabel[data.invoiceType || 'INVOICE'] || 'Facture'
+  const statusLabel = isProforma ? 'Estimation' : data.balance <= 0 ? 'Payée' : data.paid > 0 ? 'Partielle' : 'Impayée'
+  const statusColor = isProforma
+    ? 'text-blue-600'
+    : data.balance <= 0
     ? 'text-green-600'
     : data.paid > 0
     ? 'text-orange-600'
@@ -32,7 +45,7 @@ export function InvoicePreview({ data, storeName = "Mon Magasin" }: InvoicePrevi
     <div className="p-4 space-y-4 text-sm">
       <div className="text-center border-b pb-3">
         <h2 className="text-lg font-bold">{storeName}</h2>
-        <p className="text-muted-foreground">Facture {data.number}</p>
+        <p className="text-muted-foreground">{label} {data.number}</p>
       </div>
 
       <div className="flex justify-between text-xs">
@@ -40,9 +53,11 @@ export function InvoicePreview({ data, storeName = "Mon Magasin" }: InvoicePrevi
           <p className="font-medium">Client:</p>
           <p>{data.customerName}</p>
         </div>
-        <div className="text-right">
-          <p className={statusColor}>{statusLabel}</p>
-        </div>
+        {!isProforma && (
+          <div className="text-right">
+            <p className={statusColor}>{statusLabel}</p>
+          </div>
+        )}
       </div>
 
       <table className="w-full text-xs border-collapse">
@@ -87,13 +102,13 @@ export function InvoicePreview({ data, storeName = "Mon Magasin" }: InvoicePrevi
           <span>Total:</span>
           <span>{formatXOF(data.total)}</span>
         </div>
-        {data.paid > 0 && (
+        {!isProforma && data.paid > 0 && (
           <div className="flex justify-between text-green-600">
             <span>Payé:</span>
             <span>{formatXOF(data.paid)}</span>
           </div>
         )}
-        {data.balance > 0 && (
+        {!isProforma && data.balance > 0 && (
           <div className="flex justify-between text-red-600 font-medium">
             <span>Reste:</span>
             <span>{formatXOF(data.balance)}</span>
@@ -101,14 +116,14 @@ export function InvoicePreview({ data, storeName = "Mon Magasin" }: InvoicePrevi
         )}
       </div>
 
-      {data.dueDate && (
+      {data.dueDate && !isProforma && (
         <p className="text-xs text-center text-red-600 pt-2 border-t">
           Échéance: {data.dueDate}
         </p>
       )}
 
       <p className="text-xs text-center text-muted-foreground pt-2">
-        Merci de votre visite !
+        {isCreditNote ? 'Avoir émis le ' + new Date().toLocaleDateString('fr-FR') : 'Merci de votre visite !'}
       </p>
     </div>
   )

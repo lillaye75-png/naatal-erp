@@ -1,7 +1,7 @@
-import { collection, getDocs, query, where, orderBy, Timestamp, doc, updateDoc, runTransaction } from 'firebase/firestore'
+import { collection, getDocs, query, where, orderBy, Timestamp, doc, runTransaction } from 'firebase/firestore'
 import { initializeFirebase } from '@/lib/firebase'
 import { createAuditLog } from './audit.service'
-import type { Sale } from '@/types'
+import type { Sale, Customer } from '@/types'
 import { formatXOF } from '@/lib/currency'
 
 async function getDb() {
@@ -22,7 +22,7 @@ export async function getDebts(tenantId: string) {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Sale))
 }
 
-export async function recordPayment(saleId: string, amount: number, userId: string, tenantId: string) {
+export async function recordPayment(saleId: string, amount: number, userId: string, tenantId: string, method: 'CASH' | 'WAVE' | 'OM' | 'CARD' = 'CASH') {
   const db = await getDb()
 
   const now = Timestamp.now().toMillis().toString()
@@ -33,7 +33,7 @@ export async function recordPayment(saleId: string, amount: number, userId: stri
     if (!snap.exists()) throw new Error('Sale not found')
 
     const sale = snap.data() as Sale
-    const amountAlreadyPaid = (sale as any).amountPaid || 0
+    const amountAlreadyPaid = (sale as Sale).amountPaid || 0
     const newPaid = amountAlreadyPaid + amount
     const newStatus = newPaid >= sale.total ? 'PAID' : 'PARTIAL'
 
@@ -48,12 +48,29 @@ export async function recordPayment(saleId: string, amount: number, userId: stri
       transaction.set(paymentRef, {
         id: paymentRef.id,
         saleId,
+        invoiceId: sale.invoiceId || '',
         amount,
-        method: 'CASH',
-        userId,
+        method,
+        reference: '',
+        cashRegisterId: sale.cashRegisterId || '',
         tenantId,
         createdAt: now,
+        updatedAt: now,
+        createdBy: userId,
+        updatedBy: userId,
+        isDeleted: false,
+        status: 'ACTIVE',
       })
+    }
+
+    if (sale.customerId) {
+      const customerRef = doc(db, 'customers', sale.customerId)
+      const custSnap = await transaction.get(customerRef)
+      if (custSnap.exists()) {
+        const cust = custSnap.data() as Customer
+        const currentDebt = cust.totalDebt || 0
+        transaction.update(customerRef, { totalDebt: Math.max(0, currentDebt - amount), updatedAt: now })
+      }
     }
   })
 
@@ -65,5 +82,5 @@ export async function recordPayment(saleId: string, amount: number, userId: stri
     resource: 'debts',
     resourceId: saleId,
     details: `Paiement de dette de ${formatXOF(amount)} pour la vente ${saleId}`,
-  }).catch(console.error)
+  })
 }

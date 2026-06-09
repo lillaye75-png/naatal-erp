@@ -23,18 +23,6 @@ export async function initializeFirebase(): Promise<{
     initPromise = (async () => {
       if (typeof window !== 'undefined' && process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATORS !== 'true') {
         Object.keys(localStorage).filter(k => k.startsWith('firebase:')).forEach(k => localStorage.removeItem(k))
-        try {
-          const databases = await indexedDB.databases?.() ?? []
-          await Promise.all(databases
-            .filter(d => d.name && (d.name.startsWith('firebase') || d.name.includes('firebaseLocalStorage')))
-            .map(d => new Promise<void>((resolve, reject) => {
-              const req = indexedDB.deleteDatabase(d.name!)
-              req.onsuccess = () => resolve()
-              req.onerror = () => resolve()
-              req.onblocked = () => resolve()
-              setTimeout(resolve, 2000)
-            })))
-        } catch {}
       }
 
       const { initializeApp, getApps } = await import('firebase/app')

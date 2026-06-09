@@ -1,8 +1,10 @@
 import { collection, doc, runTransaction, Timestamp, query, where, orderBy, limit, startAfter, getDocs } from 'firebase/firestore'
 import { initializeFirebase } from '@/lib/firebase'
 import { createAuditLog } from './audit.service'
+import { INVOICE_PREFIX } from './invoice.service'
 import { enqueueWrite } from '@/lib/offline-queue'
 import { useOfflineStore } from '@/stores/offline.store'
+import { fetchStockLevel } from '@/repositories/inventory.repository'
 import type { Sale, Invoice, Customer } from '@/types'
 import { formatXOF } from '@/lib/currency'
 import { toast } from 'sonner'
@@ -13,18 +15,8 @@ async function getDb() {
 }
 
 async function getProductStock(productId: string, tenantId?: string): Promise<number> {
-  const db = await getDb()
-  const conditions = [where('productId', '==', productId), where('isDeleted', '==', false)]
-  if (tenantId) conditions.push(where('tenantId', '==', tenantId))
-  const snap = await getDocs(query(collection(db, 'inventory_movements'), ...conditions))
-  return snap.docs.reduce((sum, d) => sum + (d.data().qty || 0), 0)
-}
-
-const INVOICE_PREFIX: Record<string, string> = {
-  INVOICE: 'INV',
-  PROFORMA: 'PRO',
-  QUOTATION: 'DEV',
-  CREDIT_NOTE: 'AVR',
+  if (!tenantId) return 0
+  return fetchStockLevel(productId, tenantId)
 }
 
 export async function createSale(params: {
@@ -41,9 +33,10 @@ export async function createSale(params: {
   cashRegisterId?: string
   note?: string
   invoiceType?: 'INVOICE' | 'PROFORMA' | 'QUOTATION' | 'CREDIT_NOTE'
+  skipStock?: boolean
 }) {
   const invoiceType = params.invoiceType || 'INVOICE'
-  const skipStock = invoiceType === 'PROFORMA' || invoiceType === 'QUOTATION'
+  const skipStock = params.skipStock || invoiceType === 'PROFORMA' || invoiceType === 'QUOTATION'
 
   const store = useOfflineStore.getState()
 
@@ -58,7 +51,7 @@ export async function createSale(params: {
       },
       params.tenantId,
     )
-    store.refreshPendingCount().catch(console.error)
+    store.refreshPendingCount()
     toast.success('Sauvegardé en mode hors-ligne — sera synchronisé automatiquement')
     return { saleId: 'offline', invoiceId: 'offline', invoiceNumber: 'OFFLINE' }
   }
@@ -83,6 +76,22 @@ export async function createSale(params: {
         : params.amountPaid >= params.total ? 'PAID'
         : params.amountPaid > 0 ? 'PARTIAL' : 'UNPAID'
 
+    const prefix = INVOICE_PREFIX[invoiceType] || 'INV'
+    const counterRef = doc(db, 'counters', `invoice_${params.tenantId}_${prefix}`)
+    const counterSnap = await transaction.get(counterRef)
+    const invoiceNumber = counterSnap.exists() ? (counterSnap.data()?.value || 0) + 1 : 1
+
+    let customerData: Customer | null = null
+    if (paymentStatus !== 'PAID' && params.customerId) {
+      const customerRef = doc(db, 'customers', params.customerId)
+      try {
+        const custSnap = await transaction.get(customerRef)
+        if (custSnap.exists()) {
+          customerData = custSnap.data() as Customer
+        }
+      } catch { null }
+    }
+
     const saleData: Sale = {
       id: saleRef.id,
       customerId: params.customerId,
@@ -90,6 +99,7 @@ export async function createSale(params: {
         id: `${saleRef.id}-item-${idx}`,
         saleId: saleRef.id,
         productId: i.productId,
+        name: i.productName || '',
         qty: i.qty,
         unitPrice: i.unitPrice,
         total: i.qty * i.unitPrice,
@@ -115,10 +125,6 @@ export async function createSale(params: {
     }
     transaction.set(saleRef, saleData)
 
-    const prefix = INVOICE_PREFIX[invoiceType] || 'INV'
-    const counterRef = doc(db, 'counters', `invoice_${params.tenantId}_${prefix}`)
-    const counterSnap = await transaction.get(counterRef)
-    const invoiceNumber = counterSnap.exists() ? (counterSnap.data()?.value || 0) + 1 : 1
     transaction.set(counterRef, { value: invoiceNumber, tenantId: params.tenantId }, { merge: true })
 
     const invoiceRef = doc(collection(db, 'invoices'))
@@ -188,18 +194,12 @@ export async function createSale(params: {
       }
     }
 
-    if (paymentStatus !== 'PAID' && params.customerId) {
+    if (customerData) {
       const customerRef = doc(db, 'customers', params.customerId)
-      try {
-        const custSnap = await transaction.get(customerRef)
-        if (custSnap.exists()) {
-          const cust = custSnap.data() as Customer
-          transaction.update(customerRef, {
-            totalDebt: (cust.totalDebt || 0) + (params.total - params.amountPaid),
-            updatedAt: now,
-          })
-        }
-      } catch { null }
+      transaction.update(customerRef, {
+        totalDebt: (customerData.totalDebt || 0) + (params.total - params.amountPaid),
+        updatedAt: now,
+      })
     }
 
     const result = { saleId: saleRef.id, invoiceId: invoiceRef.id, invoiceNumber: invoiceData.number }
@@ -212,7 +212,7 @@ export async function createSale(params: {
       resource: 'sales',
       resourceId: saleRef.id,
       details: `Vente ${invoiceData.number} - ${formatXOF(params.total)} (${params.paymentMethod})`,
-    }).catch(console.error)
+    })
 
     return result
   })

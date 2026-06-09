@@ -5,7 +5,7 @@ import { collection, query, where, getDocs, doc, setDoc, Timestamp } from "fireb
 import { initializeFirebase } from "@/lib/firebase"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import { ShoppingCart, Plus, Minus, Trash2, Loader2, Store, Phone } from "lucide-react"
+import { ShoppingCart, Plus, Minus, Trash2, Loader2, Store, Phone, X, ShoppingBag } from "lucide-react"
 import { formatXOF } from "@/lib/currency"
 import { buildWhatsAppUrl } from "@/lib/whatsapp"
 import { toast } from "sonner"
@@ -18,6 +18,7 @@ interface StoreProduct {
   imageUrl: string
   description: string
   tenantId: string
+  isSoldOnline?: boolean
 }
 
 interface StorefrontData {
@@ -45,11 +46,12 @@ export default function StorefrontPage() {
 
   const [store, setStore] = useState<StorefrontData | null>(null)
   const [products, setProducts] = useState<StoreProduct[]>([])
-  const [stocks, setStocks] = useState<Record<string, number>>({})
+  const [stocks, setStocks] = useState<Record<string, number | null>>({})
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [cart, setCart] = useState<CartItem[]>([])
   const [trackedOrder, setTrackedOrder] = useState<any | null>(null)
+  const [cartOpen, setCartOpen] = useState(false)
 
   useEffect(() => {
     if (!trackId || !store) return
@@ -89,32 +91,36 @@ export default function StorefrontPage() {
         if (cancelled) return
         setStore(sfData)
 
-        // Load products for this tenant
+        // Load products for this tenant (show all by default; hide only if isSoldOnline === false)
         const prodSnap = await getDocs(query(
           collection(db, 'products'),
           where('tenantId', '==', sfData.tenantId),
           where('isDeleted', '==', false),
-          where('isSoldOnline', '==', true),
         ))
         if (!cancelled) {
-          const productsData = prodSnap.docs.map((d) => ({ id: d.id, ...d.data() } as StoreProduct))
+          let productsData = prodSnap.docs.map((d) => ({ id: d.id, ...d.data() } as StoreProduct))
+          productsData = productsData.filter((p) => (p as any).isSoldOnline !== false)
           setProducts(productsData)
 
-          const stockMap: Record<string, number> = {}
-          const ids = productsData.map((p) => p.id)
-          for (let i = 0; i < ids.length; i += 30) {
-            const chunk = ids.slice(i, i + 30)
-            const movSnap = await getDocs(
-              query(collection(db, 'inventory_movements'), where('productId', 'in', chunk), where('isDeleted', '==', false)),
-            )
-            const grouped: Record<string, number> = {}
-            movSnap.docs.forEach((d) => {
-              const pid = d.data().productId
-              grouped[pid] = (grouped[pid] || 0) + (d.data().qty || 0)
-            })
-            chunk.forEach((pid) => { stockMap[pid] = grouped[pid] || 0 })
+          try {
+            const stockMap: Record<string, number | null> = {}
+            const ids = productsData.map((p) => p.id)
+            for (let i = 0; i < ids.length; i += 30) {
+              const chunk = ids.slice(i, i + 30)
+              const movSnap = await getDocs(
+                query(collection(db, 'inventory_movements'), where('productId', 'in', chunk), where('tenantId', '==', sfData.tenantId)),
+              )
+              const grouped: Record<string, number> = {}
+              movSnap.docs.forEach((d) => {
+                const pid = d.data().productId
+                grouped[pid] = (grouped[pid] || 0) + (d.data().qty || 0)
+              })
+              chunk.forEach((pid) => { stockMap[pid] = grouped[pid] ?? null })
+            }
+            if (!cancelled) setStocks(stockMap)
+          } catch {
+            // If stock query fails, stockMap stays empty; products will show "?" instead of stock
           }
-          if (!cancelled) setStocks(stockMap)
         }
       } catch (err) {
         console.error('Error loading storefront:', err)
@@ -237,21 +243,40 @@ export default function StorefrontPage() {
     <div className="min-h-screen bg-background">
       {trackedOrder && (
         <div className="bg-primary/10 border-b border-primary/20">
-          <div className="max-w-6xl mx-auto px-4 py-4">
-            <div className="flex items-center gap-2 text-sm">
+          <div className="max-w-6xl mx-auto px-4 py-6">
+            <div className="flex items-center gap-2 mb-4">
               <div className="bg-primary text-primary-foreground rounded-full px-3 py-1 text-xs font-bold">
                 {trackedOrder.trackingId}
               </div>
-              <span className="font-medium">
-                {trackedOrder.status === 'CONFIRMED' ? 'Commande confirmée' :
-                 trackedOrder.status === 'DELIVERED' ? 'Commande livrée' :
-                 trackedOrder.status === 'CANCELLED' ? 'Commande annulée' :
-                 `Statut: ${trackedOrder.status}`}
-              </span>
-              <span className="text-muted-foreground">
-                — {formatXOF(trackedOrder.total || 0)}
-              </span>
+              <span className="font-medium text-sm">{formatXOF(trackedOrder.total || 0)}</span>
             </div>
+            <div className="flex items-center gap-1 text-xs">
+              {['CONFIRMED', 'PREPARING', 'SHIPPED', 'DELIVERED'].map((step, i) => {
+                const statuses = ['CONFIRMED', 'PREPARING', 'SHIPPED', 'DELIVERED']
+                const currentIdx = statuses.indexOf(trackedOrder.status)
+                const isPast = i <= currentIdx
+                const isCancelled = trackedOrder.status === 'CANCELLED'
+                return (
+                  <div key={step} className="flex items-center gap-1 flex-1">
+                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                      isCancelled ? 'bg-destructive/20 text-destructive' :
+                      isPast ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+                    }`}>
+                      {isCancelled && step === statuses[currentIdx] ? '✕' : isPast ? '✓' : i + 1}
+                    </div>
+                    <span className={`text-[10px] ${isPast ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
+                      {step === 'CONFIRMED' ? 'Confirmée' :
+                       step === 'PREPARING' ? 'Préparation' :
+                       step === 'SHIPPED' ? 'Expédiée' : 'Livrée'}
+                    </span>
+                    {i < 3 && <div className={`flex-1 h-0.5 ${isPast && !isCancelled ? 'bg-primary' : 'bg-muted'}`} />}
+                  </div>
+                )
+              })}
+            </div>
+            {trackedOrder.status === 'CANCELLED' && (
+              <p className="text-xs text-destructive mt-3">Cette commande a été annulée</p>
+            )}
           </div>
         </div>
       )}
@@ -263,44 +288,86 @@ export default function StorefrontPage() {
             <p className="text-xs text-muted-foreground">Boutique en ligne</p>
           </div>
           <div className="flex items-center gap-3">
-            {cart.length > 0 && !trackedOrder && (
-              <div className="text-right">
-                <p className="text-sm font-medium">{cart.length} article(s)</p>
-                <p className="text-xs text-muted-foreground">{formatXOF(cartTotal)}</p>
-              </div>
-            )}
             {!trackedOrder && (
-              <Button size="sm" disabled={cart.length === 0} onClick={handleWhatsAppOrder}>
-                <Phone className="w-4 h-4 mr-1" />
-                Commander
+              <Button size="sm" onClick={() => setCartOpen(true)} className="relative">
+                <ShoppingBag className="w-4 h-4 mr-1" />
+                Panier
+                {cart.length > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 bg-primary text-primary-foreground text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center">
+                    {cart.length}
+                  </span>
+                )}
               </Button>
             )}
           </div>
         </div>
       </header>
 
-      {cart.length > 0 && (
-        <div className="border-b bg-muted/30">
-          <div className="max-w-6xl mx-auto px-4 py-2">
-            <div className="flex gap-2 overflow-x-auto pb-1">
-              {cart.map((item) => (
-                <div key={item.productId} className="flex items-center gap-1 bg-white border rounded-full px-3 py-1 text-xs shrink-0">
-                  <span className="font-medium truncate max-w-[100px]">{item.name}</span>
-                  <div className="flex items-center gap-0.5 ml-1">
-                    <button className="p-0.5 hover:bg-muted rounded" onClick={() => updateQty(item.productId, item.qty - 1)}>
-                      <Minus className="w-3 h-3" />
-                    </button>
-                    <span className="w-4 text-center">{item.qty}</span>
-                    <button className="p-0.5 hover:bg-muted rounded" onClick={() => updateQty(item.productId, item.qty + 1)}>
-                      <Plus className="w-3 h-3" />
-                    </button>
-                  </div>
-                  <button className="p-0.5 hover:bg-destructive/10 rounded text-destructive" onClick={() => removeFromCart(item.productId)}>
-                    <Trash2 className="w-3 h-3" />
-                  </button>
-                </div>
-              ))}
+      {/* Floating cart button */}
+      {!trackedOrder && cart.length > 0 && (
+        <button
+          onClick={() => setCartOpen(true)}
+          className="fixed bottom-6 right-6 z-50 bg-primary text-primary-foreground w-14 h-14 rounded-full shadow-lg flex items-center justify-center hover:bg-primary/90 transition-colors"
+        >
+          <ShoppingBag className="w-6 h-6" />
+          <span className="absolute -top-1 -right-1 bg-destructive text-destructive-foreground text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center border-2 border-background">
+            {cart.length}
+          </span>
+        </button>
+      )}
+
+      {/* Cart drawer/sheet */}
+      {cartOpen && (
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setCartOpen(false)} />
+          <div className="relative w-full max-w-sm bg-background h-full shadow-xl flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b">
+              <h2 className="font-semibold">Panier ({cart.length})</h2>
+              <button onClick={() => setCartOpen(false)} className="p-1 hover:bg-muted rounded">
+                <X className="w-5 h-5" />
+              </button>
             </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {cart.length === 0 ? (
+                <p className="text-center text-muted-foreground py-8">Votre panier est vide</p>
+              ) : (
+                cart.map((item) => (
+                  <div key={item.productId} className="flex items-center gap-3 bg-muted/30 rounded-lg p-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{item.name}</p>
+                      <p className="text-xs text-muted-foreground">{formatXOF(item.price)}</p>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button className="p-1 hover:bg-muted rounded" onClick={() => updateQty(item.productId, item.qty - 1)}>
+                        <Minus className="w-3.5 h-3.5" />
+                      </button>
+                      <span className="w-6 text-center text-sm font-medium">{item.qty}</span>
+                      <button className="p-1 hover:bg-muted rounded" onClick={() => updateQty(item.productId, item.qty + 1)}>
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-medium">{formatXOF(item.price * item.qty)}</p>
+                      <button className="text-xs text-destructive hover:underline" onClick={() => removeFromCart(item.productId)}>
+                        Retirer
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+            {cart.length > 0 && (
+              <div className="border-t p-4 space-y-3">
+                <div className="flex justify-between font-semibold text-lg">
+                  <span>Total</span>
+                  <span>{formatXOF(cartTotal)}</span>
+                </div>
+                <Button className="w-full" onClick={() => { setCartOpen(false); handleWhatsAppOrder() }}>
+                  <Phone className="w-4 h-4 mr-2" />
+                  Commander via WhatsApp
+                </Button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -315,15 +382,11 @@ export default function StorefrontPage() {
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
             {products.map((product) => {
-              const stock = stocks[product.id] ?? -1
-              const isOutOfStock = stock <= 0
+              const stock = stocks[product.id] ?? null
+              const isOutOfStock = stock !== null && stock <= 0
+              const stockUnknown = stock === null
               return (
               <Card key={product.id} className="overflow-hidden hover:shadow-md transition-shadow relative">
-                {isOutOfStock && (
-                  <div className="absolute top-2 left-2 z-10 bg-red-600 text-white text-xs font-medium px-2 py-0.5 rounded-full">
-                    Rupture de stock
-                  </div>
-                )}
                 <div className="w-full h-40 bg-muted flex items-center justify-center text-muted-foreground text-xs">
                   {product.imageUrl ? (
                     <img src={product.imageUrl} alt={product.name} className="w-full h-full object-cover" />
@@ -338,12 +401,10 @@ export default function StorefrontPage() {
                   )}
                   <div className="flex items-center justify-between mt-2">
                     <span className="font-bold text-primary">{formatXOF(product.price)}</span>
-                    {!isOutOfStock && (
-                      <Button size="sm" variant="outline" className="h-8" onClick={() => addToCart(product)}>
-                        <ShoppingCart className="w-3 h-3 mr-1" />
-                        Ajouter
-                      </Button>
-                    )}
+                    <Button size="sm" variant="outline" className="h-8" onClick={() => addToCart(product)} disabled={isOutOfStock || stockUnknown}>
+                      <ShoppingCart className="w-3 h-3 mr-1" />
+                      {stockUnknown ? 'Ajouter' : isOutOfStock ? 'Indisponible' : 'Ajouter'}
+                    </Button>
                   </div>
                 </CardContent>
               </Card>

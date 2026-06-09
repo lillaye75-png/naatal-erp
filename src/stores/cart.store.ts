@@ -15,6 +15,7 @@ interface CartState {
   addItem: (item: CartItem) => void
   removeItem: (productId: string) => void
   updateQty: (productId: string, qty: number) => void
+  updatePrice: (productId: string, price: number) => void
   applyDiscount: (discount: number, type: "PERCENTAGE" | "FIXED") => void
   clearCart: () => void
   subtotal: () => number
@@ -45,6 +46,12 @@ export const useCartStore = create<CartState>((set, get) => ({
     set((state) => ({
       items: state.items.map((i) =>
         i.productId === productId ? { ...i, qty: Math.max(0, qty) } : i,
+      ),
+    })),
+  updatePrice: (productId, price) =>
+    set((state) => ({
+      items: state.items.map((i) =>
+        i.productId === productId ? { ...i, price: Math.max(0, price) } : i,
       ),
     })),
   applyDiscount: (discount, discountType) => set({ discount, discountType }),

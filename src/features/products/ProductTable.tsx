@@ -3,10 +3,13 @@
 import { useState, useEffect } from "react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { Plus, Search, Pencil, Trash2, Package } from "lucide-react"
+import { Plus, Search, Pencil, Trash2, Package, AlertTriangle } from "lucide-react"
 import { useProducts } from "./hooks/useProducts"
+import { useAuthStore } from "@/stores/auth.store"
 import { TableSkeleton } from "@/components/shared/Skeleton"
 import { formatXOF } from "@/lib/currency"
+import { getStockLevel } from "@/services/inventory.service"
+import { cn } from "@/lib/utils"
 import type { Product } from "@/types"
 
 interface ProductTableProps {
@@ -16,9 +19,11 @@ interface ProductTableProps {
 
 export function ProductTable({ onAdd, onEdit }: ProductTableProps) {
   const [products, setProducts] = useState<Product[]>([])
+  const [stockMap, setStockMap] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState("")
   const { fetchProducts, removeProduct } = useProducts()
+  const tenantId = useAuthStore((s) => s.tenant?.id)
 
   useEffect(() => {
     let cancelled = false
@@ -36,6 +41,24 @@ export function ProductTable({ onAdd, onEdit }: ProductTableProps) {
       })
     return () => { cancelled = true }
   }, [fetchProducts])
+
+  useEffect(() => {
+    if (products.length === 0) return
+    let cancelled = false
+    if (!tenantId) return
+    Promise.all(
+      products.map(async (p) => {
+        const stock = await getStockLevel(p.id, tenantId).catch(() => 0)
+        return { id: p.id, stock }
+      }),
+    ).then((results) => {
+      if (cancelled) return
+      const map: Record<string, number> = {}
+      for (const r of results) map[r.id] = r.stock
+      setStockMap(map)
+    })
+    return () => { cancelled = true }
+  }, [products, tenantId])
 
   const handleDelete = async (id: string) => {
     try {
@@ -95,32 +118,41 @@ export function ProductTable({ onAdd, onEdit }: ProductTableProps) {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((product) => (
-                <tr key={product.id} className="border-t hover:bg-muted/30">
-                  <td className="p-3">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded bg-muted flex items-center justify-center text-xs font-medium">
-                        {product.name.charAt(0)}
+              {filtered.map((product) => {
+                const stock = stockMap[product.id]
+                const isLowStock = stock !== undefined && product.minStock > 0 && stock <= product.minStock
+                return (
+                  <tr key={product.id} className={cn("border-t hover:bg-muted/30", isLowStock && "bg-destructive/5")}>
+                    <td className="p-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded bg-muted flex items-center justify-center text-xs font-medium">
+                          {product.name.charAt(0)}
+                        </div>
+                        <span className="text-sm font-medium">{product.name}</span>
+                        {isLowStock && <AlertTriangle className="w-3.5 h-3.5 text-destructive shrink-0" />}
                       </div>
-                      <span className="text-sm font-medium">{product.name}</span>
-                    </div>
-                  </td>
-                  <td className="p-3 text-sm text-muted-foreground hidden md:table-cell">{product.sku}</td>
-                  <td className="p-3 text-sm text-muted-foreground hidden md:table-cell">{product.categoryId?.slice(0, 8) || '-'}</td>
-                  <td className="p-3 text-sm text-right font-medium">{formatXOF(product.price)}</td>
-                  <td className="p-3 text-sm text-right hidden md:table-cell">{product.minStock ? `${product.minStock}+` : '-'}</td>
-                  <td className="p-3 text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <Button variant="ghost" size="icon" className="w-8 h-8" onClick={() => onEdit(product)}>
-                        <Pencil className="w-3.5 h-3.5" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="w-8 h-8 text-destructive" onClick={() => handleDelete(product.id)}>
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="p-3 text-sm text-muted-foreground hidden md:table-cell">{product.sku}</td>
+                    <td className="p-3 text-sm text-muted-foreground hidden md:table-cell">{product.categoryId?.slice(0, 8) || '-'}</td>
+                    <td className="p-3 text-sm text-right font-medium">{formatXOF(product.price)}</td>
+                    <td className="p-3 text-sm text-right hidden md:table-cell">
+                      <span className={cn(isLowStock && "text-destructive font-semibold")}>
+                        {stock !== undefined ? stock : (product.minStock ? `${product.minStock}+` : '-')}
+                      </span>
+                    </td>
+                    <td className="p-3 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button variant="ghost" size="icon" className="w-8 h-8" onClick={() => onEdit(product)}>
+                          <Pencil className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="w-8 h-8 text-destructive" onClick={() => handleDelete(product.id)}>
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>

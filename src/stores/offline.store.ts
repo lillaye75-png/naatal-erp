@@ -37,7 +37,7 @@ export const useOfflineStore = create<OfflineState>()(
       setOnline: (online) => {
         set({ isOnline: online, showBanner: !online && !get().dismissed })
         if (online) {
-          get().syncNow().catch(console.error)
+          get().syncNow()
         }
       },
 

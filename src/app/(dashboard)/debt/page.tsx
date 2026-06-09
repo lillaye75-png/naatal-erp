@@ -55,7 +55,7 @@ export default function DebtPage() {
     if (amount <= 0 || amount > paymentDialog.remaining) return
 
     try {
-      await recordPayment(paymentDialog.saleId, amount, userId, tenantId)
+      await recordPayment(paymentDialog.saleId, amount, userId, tenantId, 'CASH')
       toast.success(`Paiement de ${formatXOF(amount)} enregistré`)
       setPaymentDialog(null)
       loadDebts()

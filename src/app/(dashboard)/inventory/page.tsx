@@ -4,14 +4,30 @@ import { useState, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { PackageSearch, AlertTriangle, Search } from "lucide-react"
+import { PackageSearch, AlertTriangle, Search, Warehouse, Eye } from "lucide-react"
 import { TableSkeleton } from "@/components/shared/Skeleton"
 import { useAuthStore } from "@/stores/auth.store"
 import { getProducts } from "@/repositories/product.repository"
 import { getStockLevel, getLowStockProducts } from "@/services/inventory.service"
 import { formatXOF } from "@/lib/currency"
 import { toast } from "sonner"
-import type { Product } from "@/types"
+import { collection, getDocs, query, where } from "firebase/firestore"
+import { initializeFirebase } from "@/lib/firebase"
+import type { Product, Warehouse as WarehouseType, InventoryMovement } from "@/types"
+import { useWarehouseName } from "@/hooks/useWarehouses"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 
 interface LowStockProduct {
   id: string
@@ -25,9 +41,23 @@ export default function InventoryPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState("")
+  const [warehouseFilter, setWarehouseFilter] = useState("")
+  const [warehouses, setWarehouses] = useState<WarehouseType[]>([])
   const [stockMap, setStockMap] = useState<Record<string, number>>({})
   const [lowStockItems, setLowStockItems] = useState<LowStockProduct[]>([])
+  const [movementProduct, setMovementProduct] = useState<Product | null>(null)
+  const [movements, setMovements] = useState<InventoryMovement[]>([])
+  const [movementsLoading, setMovementsLoading] = useState(false)
   const tenantId = useAuthStore((s) => s.tenant?.id)
+  const getWarehouseName = useWarehouseName(tenantId)
+
+  useEffect(() => {
+    if (!tenantId) return
+    initializeFirebase().then(({ db }) =>
+      getDocs(query(collection(db, 'warehouses'), where('tenantId', '==', tenantId)))
+        .then((snap) => setWarehouses(snap.docs.map((d) => ({ id: d.id, ...d.data() } as WarehouseType))))
+    )
+  }, [tenantId])
 
   const load = useCallback(async () => {
     if (!tenantId) { setLoading(false); return }
@@ -36,10 +66,11 @@ export default function InventoryPage() {
       const result = await getProducts(tenantId)
       setProducts(result.items)
 
+      const wId = warehouseFilter || undefined
       const stocks: Record<string, number> = {}
       await Promise.all(
         result.items.map(async (p) => {
-          stocks[p.id] = await getStockLevel(p.id)
+          stocks[p.id] = await getStockLevel(p.id, tenantId, wId)
         }),
       )
       setStockMap(stocks)
@@ -52,12 +83,41 @@ export default function InventoryPage() {
     } finally {
       setLoading(false)
     }
-  }, [tenantId])
+  }, [tenantId, warehouseFilter])
 
   useEffect(() => { load() }, [load])
 
+  const loadMovements = async (product: Product) => {
+    if (!tenantId) return
+    setMovementProduct(product)
+    setMovementsLoading(true)
+    try {
+      const { db } = await initializeFirebase()
+      const snap = await getDocs(query(
+        collection(db, 'inventory_movements'),
+        where('productId', '==', product.id),
+        where('tenantId', '==', tenantId),
+      ))
+      setMovements(snap.docs.map((d) => ({ id: d.id, ...d.data() } as InventoryMovement)).reverse())
+    } catch {
+      toast.error("Erreur de chargement des mouvements")
+    } finally {
+      setMovementsLoading(false)
+    }
+  }
+
+  const MOVEMENT_LABELS: Record<string, string> = {
+    SALE: 'Vente',
+    PURCHASE: 'Achat',
+    RETURN: 'Retour',
+    ADJUSTMENT: 'Ajustement',
+    TRANSFER: 'Transfert',
+  }
+
   const filtered = products.filter(
     (p) => p.name.toLowerCase().includes(search.toLowerCase()),
+  ).filter(
+    (p) => !warehouseFilter || p.warehouseId === warehouseFilter,
   )
 
   if (loading) return <TableSkeleton />
@@ -99,9 +159,23 @@ export default function InventoryPage() {
         </Card>
       )}
 
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <Input placeholder="Rechercher un produit..." className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input placeholder="Rechercher un produit..." className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
+        </div>
+        <Select value={warehouseFilter} onValueChange={(v) => setWarehouseFilter(v === 'all' || !v ? '' : v)}>
+          <SelectTrigger className="w-[180px]">
+            <Warehouse className="w-4 h-4 mr-1" />
+            <SelectValue placeholder="Tous les entrepôts" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Tous les entrepôts</SelectItem>
+            {warehouses.map((w) => (
+              <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {filtered.length === 0 ? (
@@ -115,10 +189,12 @@ export default function InventoryPage() {
             <thead>
               <tr className="bg-muted/50">
                 <th className="text-left p-3 text-xs font-medium text-muted-foreground">Produit</th>
+                <th className="text-left p-3 text-xs font-medium text-muted-foreground hidden md:table-cell">Entrepôt</th>
                 <th className="text-right p-3 text-xs font-medium text-muted-foreground">Stock</th>
                 <th className="text-right p-3 text-xs font-medium text-muted-foreground hidden md:table-cell">Min</th>
                 <th className="text-right p-3 text-xs font-medium text-muted-foreground hidden md:table-cell">Valeur</th>
                 <th className="text-center p-3 text-xs font-medium text-muted-foreground">Statut</th>
+                <th className="text-right p-3 text-xs font-medium text-muted-foreground">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -130,6 +206,7 @@ export default function InventoryPage() {
                 return (
                   <tr key={p.id} className="border-t hover:bg-muted/30">
                     <td className="p-3 text-sm font-medium">{p.name}</td>
+                    <td className="p-3 text-sm text-muted-foreground hidden md:table-cell">{getWarehouseName(p.warehouseId)}</td>
                     <td className="p-3 text-sm text-right font-medium">{stock}</td>
                     <td className="p-3 text-sm text-right text-muted-foreground hidden md:table-cell">{minStock}</td>
                     <td className="p-3 text-sm text-right hidden md:table-cell">{formatXOF(stock * p.costPrice)}</td>
@@ -142,6 +219,11 @@ export default function InventoryPage() {
                         {status === 'OK' ? 'OK' : status === 'LOW' ? 'Faible' : 'Rupture'}
                       </span>
                     </td>
+                    <td className="p-3 text-right">
+                      <Button variant="ghost" size="xs" onClick={() => loadMovements(p)}>
+                        <Eye className="w-3 h-3" />
+                      </Button>
+                    </td>
                   </tr>
                 )
               })}
@@ -149,6 +231,62 @@ export default function InventoryPage() {
           </table>
         </div>
       )}
+
+      <Dialog open={!!movementProduct} onOpenChange={(open) => { if (!open) setMovementProduct(null) }}>
+        <DialogContent className="sm:max-w-2xl max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <PackageSearch className="w-4 h-4" />
+              {movementProduct?.name}
+              <span className="text-sm font-normal text-muted-foreground ml-auto">
+                Stock: <span className="font-semibold">{movementProduct ? stockMap[movementProduct.id] || 0 : 0}</span>
+              </span>
+            </DialogTitle>
+          </DialogHeader>
+          {movementsLoading ? (
+            <div className="py-8 text-center text-muted-foreground">Chargement...</div>
+          ) : movements.length === 0 ? (
+            <div className="py-8 text-center text-muted-foreground">Aucun mouvement</div>
+          ) : (
+            <div className="overflow-x-auto flex-1">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b bg-muted/50">
+                    <th className="text-left p-2 text-xs font-medium text-muted-foreground">Date</th>
+                    <th className="text-left p-2 text-xs font-medium text-muted-foreground">Type</th>
+                    <th className="text-right p-2 text-xs font-medium text-muted-foreground">Qté</th>
+                    <th className="text-left p-2 text-xs font-medium text-muted-foreground">Entrepôt</th>
+                    <th className="text-left p-2 text-xs font-medium text-muted-foreground">Note</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {movements.map((m) => (
+                    <tr key={m.id} className="border-t hover:bg-muted/30">
+                      <td className="p-2 text-xs">{m.createdAt ? new Date(parseInt(m.createdAt)).toLocaleDateString("fr-FR") : '-'}</td>
+                      <td className="p-2 text-xs">
+                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${
+                          m.type === 'PURCHASE' ? 'bg-blue-100 text-blue-800' :
+                          m.type === 'SALE' ? 'bg-green-100 text-green-800' :
+                          m.type === 'ADJUSTMENT' ? 'bg-yellow-100 text-yellow-800' :
+                          m.type === 'TRANSFER' ? 'bg-purple-100 text-purple-800' :
+                          'bg-gray-100 text-gray-800'
+                        }`}>
+                          {MOVEMENT_LABELS[m.type] || m.type}
+                        </span>
+                      </td>
+                      <td className={`p-2 text-xs text-right font-medium ${m.qty > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {m.qty > 0 ? `+${m.qty}` : m.qty}
+                      </td>
+                      <td className="p-2 text-xs text-muted-foreground">{getWarehouseName(m.warehouseId)}</td>
+                      <td className="p-2 text-xs text-muted-foreground">{m.note || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

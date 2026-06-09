@@ -63,6 +63,7 @@ export interface Product {
   minStock: number
   warehouseId: string
   isSoldOnline: boolean
+  description: string
 }
 
 export interface Category {
@@ -133,6 +134,7 @@ export interface SaleItem {
   id: string
   saleId: string
   productId: string
+  name?: string
   qty: number
   unitPrice: number
   total: number
@@ -189,6 +191,7 @@ export interface InventoryMovement {
   note: string
   referenceId: string
   warehouseId: string
+  createdAt?: string
 }
 
 export interface StockAdjustment {
@@ -264,20 +267,25 @@ export interface Storefront {
 
 export interface Order {
   id: string
-  customerId: string
+  trackingId: string
+  storefrontId: string
+  tenantId: string
   items: OrderItem[]
   total: number
-  status: string
+  status: 'PENDING' | 'CONFIRMED' | 'ACCEPTED' | 'REFUSED' | 'DELIVERED' | 'CANCELLED'
+  customerPhone: string
+  customerName: string
   source: string
   paymentMethod: string
+  createdAt: string
+  updatedAt: string
 }
 
 export interface OrderItem {
-  id: string
-  orderId: string
   productId: string
-  qty: number
+  name: string
   price: number
+  qty: number
 }
 
 export interface AuditLog {

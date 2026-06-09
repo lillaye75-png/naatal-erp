@@ -1,14 +1,16 @@
 import { create } from "zustand"
-import { collection, query, where, getDocs, updateDoc, doc, Timestamp } from "firebase/firestore"
+import { collection, query, where, getDocs, updateDoc, doc, Timestamp, setDoc, increment } from "firebase/firestore"
 import { initializeFirebase } from "@/lib/firebase"
 
 interface CashRegisterState {
   sessionId: string | null
+  firestoreDocId: string | null
   isOpen: boolean
   openingBalance: number
   currentBalance: number
-  setSession: (sessionId: string, openingBalance: number) => void
-  addMovement: (amount: number) => void
+  tenantId: string | null
+  setSession: (sessionId: string, openingBalance: number, firestoreDocId: string) => void
+  addMovement: (amount: number) => Promise<void>
   closeSession: () => void
   checkAutoClose: () => Promise<void>
 }
@@ -19,22 +21,50 @@ function showWarningToast(msg: string) {
   }
 }
 
-export const useCashRegisterStore = create<CashRegisterState>((set, get) => {
-  setInterval(() => {
-    get().checkAutoClose()
-  }, 60 * 60 * 1000)
+let _autoCloseInterval: ReturnType<typeof setInterval> | null = null
 
+export function startAutoCloseCheck() {
+  if (_autoCloseInterval) return
+  _autoCloseInterval = setInterval(() => {
+    useCashRegisterStore.getState().checkAutoClose()
+  }, 60 * 60 * 1000)
+}
+
+export function stopAutoCloseCheck() {
+  if (_autoCloseInterval) {
+    clearInterval(_autoCloseInterval)
+    _autoCloseInterval = null
+  }
+}
+
+export const useCashRegisterStore = create<CashRegisterState>((set, get) => {
+  startAutoCloseCheck()
   return {
     sessionId: null,
+    firestoreDocId: null,
     isOpen: false,
     openingBalance: 0,
     currentBalance: 0,
-    setSession: (sessionId, openingBalance) =>
-      set({ sessionId, isOpen: true, openingBalance, currentBalance: openingBalance }),
-    addMovement: (amount) =>
-      set((state) => ({ currentBalance: state.currentBalance + amount })),
+    tenantId: null,
+    setSession: (sessionId, openingBalance, firestoreDocId) =>
+      set({ sessionId, firestoreDocId, isOpen: true, openingBalance, currentBalance: openingBalance }),
+    addMovement: async (amount) => {
+      const { firestoreDocId, tenantId, currentBalance } = get()
+      const newBalance = currentBalance + amount
+      set({ currentBalance: newBalance })
+      if (firestoreDocId && tenantId) {
+        try {
+          const { db } = await initializeFirebase()
+          await updateDoc(doc(db, 'cash_registers', firestoreDocId), {
+            currentBalance: newBalance,
+          })
+        } catch (err) {
+          console.error("Failed to persist cash movement:", err)
+        }
+      }
+    },
     closeSession: () =>
-      set({ sessionId: null, isOpen: false, openingBalance: 0, currentBalance: 0 }),
+      set({ sessionId: null, firestoreDocId: null, isOpen: false, openingBalance: 0, currentBalance: 0, tenantId: null }),
     checkAutoClose: async () => {
       try {
         const now = new Date()

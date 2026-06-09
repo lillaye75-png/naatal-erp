@@ -11,6 +11,7 @@ import {
   ShoppingCart,
   FileText,
   ShoppingBag,
+  Calculator,
   ClipboardList,
   PackageSearch,
   HandCoins,
@@ -24,6 +25,7 @@ import {
   Warehouse,
   Ruler,
   UserCog,
+  ListOrdered,
 } from "lucide-react"
 
 interface NavItem {
@@ -41,12 +43,14 @@ const navItems: NavItem[] = [
   { label: "nav.sales", href: ROUTES.SALES, icon: ShoppingCart },
   { label: "nav.invoices", href: ROUTES.INVOICES, icon: FileText },
   { label: "nav.pos", href: ROUTES.POS, icon: ShoppingBag },
+  { label: "nav.quickPos", href: ROUTES.POS_QUICK, icon: Calculator },
   { label: "nav.purchases", href: ROUTES.PURCHASES, icon: ClipboardList },
   { label: "nav.inventory", href: ROUTES.INVENTORY, icon: PackageSearch },
   { label: "nav.debt", href: ROUTES.DEBT, icon: HandCoins },
   { label: "nav.cashRegister", href: ROUTES.CASH_REGISTER, icon: Banknote },
   { label: "nav.reports", href: ROUTES.REPORTS, icon: BarChart3 },
   { label: "nav.ecommerce", href: ROUTES.ECOMMERCE, icon: Globe },
+  { label: "nav.orders", href: ROUTES.ECOMMERCE_ORDERS, icon: ListOrdered },
   { label: "product.categories", href: ROUTES.CATEGORIES, icon: Tags },
   { label: "product.brands", href: ROUTES.BRANDS, icon: Bookmark },
   { label: "nav.importProducts", href: ROUTES.PRODUCTS_IMPORT, icon: PackageSearch },

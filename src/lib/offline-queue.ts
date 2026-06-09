@@ -48,7 +48,7 @@ export async function enqueueWrite(
   await new Promise<void>((resolve, reject) => {
     tx.oncomplete = () => resolve()
     tx.onerror = () => reject(tx.error)
-  }).catch(console.error)
+  }).catch(() => {})
   return id
 }
 
@@ -98,7 +98,7 @@ export async function removeFromQueue(id: string): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     tx.oncomplete = () => resolve()
     tx.onerror = () => reject(tx.error)
-  }).catch(console.error)
+  }).catch(() => {})
 }
 
 export async function clearProcessedQueue(): Promise<void> {
@@ -108,7 +108,7 @@ export async function clearProcessedQueue(): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     tx.oncomplete = () => resolve()
     tx.onerror = () => reject(tx.error)
-  }).catch(console.error)
+  }).catch(() => {})
 }
 
 export async function getQueueSize(): Promise<number> {

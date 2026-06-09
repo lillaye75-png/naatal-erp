@@ -1,4 +1,4 @@
-import { collection, doc, getDoc, getDocs, query, setDoc, updateDoc, addDoc, deleteDoc, where, orderBy, limit, startAfter, Timestamp } from 'firebase/firestore'
+import { collection, doc, getDoc, getDocs, query, setDoc, updateDoc, addDoc, deleteDoc, where, orderBy, limit, startAfter, Timestamp, runTransaction } from 'firebase/firestore'
 import { initializeFirebase } from '@/lib/firebase'
 import type { Product, Category, Brand, Unit } from '@/types'
 
@@ -37,15 +37,40 @@ export async function getProduct(id: string): Promise<Product | null> {
 
 export async function createProduct(data: Record<string, any>, userId: string) {
   const db = await getDb()
+  const now = Timestamp.now().toMillis().toString()
+  const initialStock = Number(data.initialStock) || 0
+  const { initialStock: _, ...productData } = data
+
   const ref = await addDoc(collection(db, 'products'), {
-    ...data,
-    createdAt: Timestamp.now().toMillis().toString(),
-    updatedAt: Timestamp.now().toMillis().toString(),
+    ...productData,
+    createdAt: now,
+    updatedAt: now,
     createdBy: userId,
     updatedBy: userId,
     isDeleted: false,
     status: 'ACTIVE',
   })
+
+  if (initialStock > 0) {
+    const movRef = doc(collection(db, 'inventory_movements'))
+    await setDoc(movRef, {
+      id: movRef.id,
+      productId: ref.id,
+      type: 'ADJUSTMENT',
+      qty: initialStock,
+      balance: initialStock,
+      note: 'Stock initial',
+      referenceId: ref.id,
+      warehouseId: data.warehouseId || '',
+      tenantId: data.tenantId,
+      createdAt: now,
+      updatedAt: now,
+      createdBy: userId,
+      isDeleted: false,
+      status: 'ACTIVE',
+    })
+  }
+
   return ref.id
 }
 

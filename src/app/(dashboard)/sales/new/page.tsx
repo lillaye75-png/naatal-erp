@@ -12,7 +12,10 @@ import { useAuthStore } from "@/stores/auth.store"
 import { getProducts } from "@/repositories/product.repository"
 import { getCustomers } from "@/repositories/customer.repository"
 import { createSale } from "@/services/sale.service"
+import { createCustomer } from "@/repositories/customer.repository"
 import { formatXOF } from "@/lib/currency"
+import { initializeFirebase } from "@/lib/firebase"
+import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -34,8 +37,9 @@ import {
 } from "@/components/ui/dialog"
 import { TableSkeleton } from "@/components/shared/Skeleton"
 import { EmptyState } from "@/components/shared/EmptyState"
+import { InvoiceModal } from "@/components/shared/InvoiceModal"
 
-import type { Product, Customer } from "@/types"
+import type { Product, Customer, Sale, Invoice } from "@/types"
 
 const paymentSchema = z.object({
   paymentMethod: z.enum(["CASH", "WAVE", "OM", "DEBT"]),
@@ -70,7 +74,12 @@ export default function NewSalePage() {
   const [discount, setDiscount] = useState(0)
   const [submitting, setSubmitting] = useState(false)
   const [customerDialogOpen, setCustomerDialogOpen] = useState(false)
+  const [newCustomerDialogOpen, setNewCustomerDialogOpen] = useState(false)
   const [invoiceType, setInvoiceType] = useState<'INVOICE' | 'PROFORMA' | 'QUOTATION' | 'CREDIT_NOTE'>('INVOICE')
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false)
+  const [createdSale, setCreatedSale] = useState<Sale | null>(null)
+  const [createdInvoice, setCreatedInvoice] = useState<Invoice | null>(null)
+  const [taxRate, setTaxRate] = useState(18)
 
   const {
     register,
@@ -107,6 +116,18 @@ export default function NewSalePage() {
       .then((res) => setCustomers(res.items))
       .catch((err) => setCustomersError(err instanceof Error ? err.message : "Erreur lors du chargement des clients"))
       .finally(() => setLoadingCustomers(false))
+  }, [tenantId])
+
+  useEffect(() => {
+    if (!tenantId) return
+    initializeFirebase().then(({ db }) => {
+      getDocs(query(collection(db, 'settings'), where('tenantId', '==', tenantId)))
+        .then((snap) => {
+          const doc = snap.docs[0]
+          if (doc) setTaxRate((doc.data() as any)?.taxRate ?? 18)
+        })
+        .catch(() => {})
+    })
   }, [tenantId])
 
   const filteredProducts = useMemo(() => {
@@ -169,12 +190,25 @@ export default function NewSalePage() {
     setCart((prev) => prev.filter((item) => item.productId !== productId))
   }
 
+  const updatePrice = (productId: string, unitPrice: number) => {
+    if (unitPrice < 0) return
+    setCart((prev) =>
+      prev.map((item) =>
+        item.productId === productId
+          ? { ...item, unitPrice, total: item.qty * unitPrice }
+          : item,
+      ),
+    )
+  }
+
+  const [newCustomer, setNewCustomer] = useState({ name: "", phone: "", email: "", address: "" })
+
   const subtotal = useMemo(() => cart.reduce((sum, item) => sum + item.total, 0), [cart])
 
   const tax = useMemo(() => {
     const afterDiscount = subtotal - discount
-    return afterDiscount > 0 ? afterDiscount * 0.18 : 0
-  }, [subtotal, discount])
+    return afterDiscount > 0 ? afterDiscount * taxRate / 100 : 0
+  }, [subtotal, discount, taxRate])
 
   const total = useMemo(() => Math.max(0, subtotal - discount + tax), [subtotal, discount, tax])
 
@@ -204,6 +238,7 @@ export default function NewSalePage() {
         customerId: selectedCustomer.id,
         items: cart.map((item) => ({
           productId: item.productId,
+          productName: item.name,
           qty: item.qty,
           unitPrice: item.unitPrice,
           total: item.total,
@@ -213,14 +248,19 @@ export default function NewSalePage() {
         tax,
         total,
         paymentMethod: paymentData.paymentMethod,
-        amountPaid: paymentData.paymentMethod === "DEBT" ? 0 : paymentData.amountPaid,
+        amountPaid: paymentData.amountPaid,
         tenantId,
         userId,
         invoiceType,
       })
-      const label = invoiceType === 'PROFORMA' ? 'Pro Forma' : invoiceType === 'QUOTATION' ? 'Devis' : invoiceType === 'CREDIT_NOTE' ? 'Avoir' : 'Facture'
-      toast.success(`${label} créée avec succès — ${result.invoiceNumber}`)
-      router.push("/sales")
+      const { db } = await initializeFirebase()
+      const [saleSnap, invoiceSnap] = await Promise.all([
+        getDoc(doc(db, 'sales', result.saleId)),
+        getDoc(doc(db, 'invoices', result.invoiceId)),
+      ])
+      if (saleSnap.exists()) setCreatedSale({ id: result.saleId, ...saleSnap.data() } as Sale)
+      if (invoiceSnap.exists()) setCreatedInvoice({ id: result.invoiceId, ...invoiceSnap.data() } as Invoice)
+      setShowInvoiceModal(true)
     } catch (err: any) {
       toast.error(err?.message || "Erreur lors de la création de la vente")
     } finally {
@@ -325,6 +365,92 @@ export default function NewSalePage() {
                     ))
                   )}
                 </div>
+                <div className="border-t pt-3 mt-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => { setNewCustomerDialogOpen(true); setNewCustomer({ name: "", phone: "", email: "", address: "" }) }}
+                  >
+                    <Plus className="size-3.5 mr-1" />
+                    Créer un nouveau client
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+
+            <Dialog open={newCustomerDialogOpen} onOpenChange={setNewCustomerDialogOpen}>
+              <DialogContent className="sm:max-w-sm">
+                <DialogHeader>
+                  <DialogTitle>Nouveau client</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="newCustomerName">Nom *</Label>
+                    <Input
+                      id="newCustomerName"
+                      value={newCustomer.name}
+                      onChange={(e) => setNewCustomer((prev) => ({ ...prev, name: e.target.value }))}
+                      placeholder="Nom du client"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="newCustomerPhone">Téléphone</Label>
+                    <Input
+                      id="newCustomerPhone"
+                      value={newCustomer.phone}
+                      onChange={(e) => setNewCustomer((prev) => ({ ...prev, phone: e.target.value }))}
+                      placeholder="+221 XX XXX XX XX"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="newCustomerEmail">Email</Label>
+                    <Input
+                      id="newCustomerEmail"
+                      type="email"
+                      value={newCustomer.email}
+                      onChange={(e) => setNewCustomer((prev) => ({ ...prev, email: e.target.value }))}
+                      placeholder="client@exemple.com"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="newCustomerAddress">Adresse</Label>
+                    <Input
+                      id="newCustomerAddress"
+                      value={newCustomer.address}
+                      onChange={(e) => setNewCustomer((prev) => ({ ...prev, address: e.target.value }))}
+                      placeholder="Adresse"
+                    />
+                  </div>
+                  <div className="flex gap-2 justify-end pt-2">
+                    <Button type="button" variant="outline" onClick={() => setNewCustomerDialogOpen(false)}>
+                      Annuler
+                    </Button>
+                    <Button
+                      type="button"
+                      disabled={!newCustomer.name.trim()}
+                      onClick={async () => {
+                        if (!tenantId || !userId) return
+                        try {
+                          const customerId = await createCustomer(
+                            { name: newCustomer.name.trim(), phone: newCustomer.phone.trim(), email: newCustomer.email.trim(), address: newCustomer.address.trim(), tenantId },
+                            userId,
+                          )
+                          const created: Customer = { id: customerId, name: newCustomer.name.trim(), phone: newCustomer.phone.trim(), email: newCustomer.email.trim(), address: newCustomer.address.trim(), groupId: "", creditLimit: 0, totalDebt: 0, language: "fr" }
+                          setSelectedCustomer(created)
+                          setCustomers((prev) => [...prev, created])
+                          setNewCustomerDialogOpen(false)
+                          setCustomerDialogOpen(false)
+                          toast.success("Client créé avec succès")
+                        } catch (err: any) {
+                          toast.error(err?.message || "Erreur lors de la création du client")
+                        }
+                      }}
+                    >
+                      Créer
+                    </Button>
+                  </div>
+                </div>
               </DialogContent>
             </Dialog>
           </CardContent>
@@ -412,8 +538,15 @@ export default function NewSalePage() {
                     >
                       <div className="flex-1 min-w-0">
                         <div className="text-sm font-medium truncate">{item.name}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {formatXOF(item.unitPrice)}
+                        <div className="flex items-center gap-1 mt-1">
+                          <span className="text-xs text-muted-foreground">PU:</span>
+                          <Input
+                            type="number"
+                            min={0}
+                            value={item.unitPrice}
+                            onChange={(e) => updatePrice(item.productId, Math.max(0, Number(e.target.value)))}
+                            className="w-20 h-6 text-xs text-right"
+                          />
                         </div>
                       </div>
                       <div className="flex items-center gap-1">
@@ -466,7 +599,7 @@ export default function NewSalePage() {
                     />
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span>TVA (18%)</span>
+                    <span>TVA ({taxRate}%)</span>
                     <span>{formatXOF(tax)}</span>
                   </div>
                   <div className="flex justify-between text-sm font-bold border-t pt-1.5">
@@ -505,42 +638,41 @@ export default function NewSalePage() {
                 </Select>
               </div>
 
-              {paymentMethod !== "DEBT" && (
-                <div className="space-y-1.5">
-                  <Label htmlFor="amountPaid">Montant payé</Label>
-                  <Input
-                    id="amountPaid"
-                    type="number"
-                    min={0}
-                    step="any"
-                    {...register("amountPaid", { valueAsNumber: true })}
-                    placeholder="0"
-                  />
-                  {errors.amountPaid && (
-                    <p className="text-xs text-destructive">{errors.amountPaid.message}</p>
-                  )}
-                </div>
-              )}
+              <div className="space-y-1.5">
+                <Label htmlFor="amountPaid">
+                  {paymentMethod === "DEBT" ? "Montant payé (acompte)" : "Montant payé"}
+                </Label>
+                <Input
+                  id="amountPaid"
+                  type="number"
+                  min={0}
+                  step="any"
+                  {...register("amountPaid", { valueAsNumber: true })}
+                  placeholder="0"
+                />
+                {errors.amountPaid && (
+                  <p className="text-xs text-destructive">{errors.amountPaid.message}</p>
+                )}
+              </div>
 
               {selectedCustomer && cart.length > 0 && (
                 <div className="text-xs text-muted-foreground space-y-0.5">
-                  {paymentMethod !== "DEBT" && (
-                    <>
-                      <p>
-                        Statut du paiement :{" "}
-                        {getPaymentStatus(amountPaid, total) === "PAID"
-                          ? "Payé"
-                          : getPaymentStatus(amountPaid, total) === "PARTIAL"
-                            ? "Paiement partiel"
-                            : "Non payé"}
-                      </p>
-                      {amountPaid < total && amountPaid > 0 && (
-                        <p>Reste à payer : {formatXOF(total - amountPaid)}</p>
-                      )}
-                    </>
+                  <p>
+                    Statut du paiement :{" "}
+                    {getPaymentStatus(amountPaid, total) === "PAID"
+                      ? "Payé"
+                      : getPaymentStatus(amountPaid, total) === "PARTIAL"
+                        ? "Paiement partiel"
+                        : "Non payé"}
+                  </p>
+                  {amountPaid < total && amountPaid > 0 && (
+                    <p>Reste à payer : {formatXOF(total - amountPaid)}</p>
                   )}
-                  {paymentMethod === "DEBT" && (
+                  {paymentMethod === "DEBT" && amountPaid === 0 && (
                     <p>Cette vente sera enregistrée comme une dette</p>
+                  )}
+                  {paymentMethod === "DEBT" && amountPaid > 0 && (
+                    <p>Dette restante : {formatXOF(total - amountPaid)}</p>
                   )}
                 </div>
               )}
@@ -556,6 +688,15 @@ export default function NewSalePage() {
           </CardContent>
         </Card>
       </div>
+      <InvoiceModal
+        open={showInvoiceModal}
+        onOpenChange={(open) => { setShowInvoiceModal(open); if (!open) router.push("/sales") }}
+        sale={createdSale}
+        invoice={createdInvoice}
+        customer={selectedCustomer}
+        storeName={useAuthStore.getState().tenant?.name || 'Mon Magasin'}
+        storeLogo={useAuthStore.getState().tenant?.logoUrl}
+      />
     </div>
   )
 }

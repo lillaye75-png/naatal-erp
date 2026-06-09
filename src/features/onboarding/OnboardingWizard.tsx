@@ -24,7 +24,7 @@ const SECTORS = [
 
 export function OnboardingWizard() {
   const router = useRouter()
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const [step, setStep] = useState(0)
   const [completed, setCompleted] = useState(false)
   const [saving, setSaving] = useState(false)
