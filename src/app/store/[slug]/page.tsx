@@ -401,9 +401,9 @@ export default function StorefrontPage() {
                   )}
                   <div className="flex items-center justify-between mt-2">
                     <span className="font-bold text-primary">{formatXOF(product.price)}</span>
-                    <Button size="sm" variant="outline" className="h-8" onClick={() => addToCart(product)} disabled={isOutOfStock || stockUnknown}>
+                    <Button size="sm" variant="outline" className="h-8" onClick={() => addToCart(product)} disabled={isOutOfStock}>
                       <ShoppingCart className="w-3 h-3 mr-1" />
-                      {stockUnknown ? 'Ajouter' : isOutOfStock ? 'Indisponible' : 'Ajouter'}
+                      {isOutOfStock ? 'Indisponible' : 'Ajouter'}
                     </Button>
                   </div>
                 </CardContent>
