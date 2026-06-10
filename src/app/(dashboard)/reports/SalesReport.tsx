@@ -261,17 +261,19 @@ td{padding:6px 12px;border:1px solid #ddd}.title{color:#666;font-size:12px;margi
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card>
           <CardHeader><CardTitle className="text-sm">Revenus quotidiens</CardTitle></CardHeader>
-          <CardContent className="h-72">
+          <CardContent className="h-[300px]">
             {dailyRevenue.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-                <BarChart data={dailyRevenue}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="date" tick={{ fontSize: 12 }} />
-                  <YAxis tick={{ fontSize: 12 }} />
-                  <Tooltip formatter={(value: unknown) => formatXOF(Number(value) || 0)} />
-                  <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              <div className="w-full h-[280px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={dailyRevenue}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="date" tick={{ fontSize: 12 }} />
+                    <YAxis tick={{ fontSize: 12 }} />
+                    <Tooltip formatter={(value: unknown) => formatXOF(Number(value) || 0)} />
+                    <Bar dataKey="revenue" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
             ) : (
               <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
                 Aucune donnée pour cette période
@@ -281,17 +283,19 @@ td{padding:6px 12px;border:1px solid #ddd}.title{color:#666;font-size:12px;margi
         </Card>
         <Card>
           <CardHeader><CardTitle className="text-sm">Profit quotidien</CardTitle></CardHeader>
-          <CardContent className="h-72">
+          <CardContent className="h-[300px]">
             {dailyRevenue.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-                <BarChart data={dailyRevenue}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="date" tick={{ fontSize: 12 }} />
-                  <YAxis tick={{ fontSize: 12 }} />
-                  <Tooltip formatter={(value: unknown) => formatXOF(Number(value) || 0)} />
-                  <Bar dataKey="profit" fill="hsl(var(--success))" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              <div className="w-full h-[280px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={dailyRevenue}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="date" tick={{ fontSize: 12 }} />
+                    <YAxis tick={{ fontSize: 12 }} />
+                    <Tooltip formatter={(value: unknown) => formatXOF(Number(value) || 0)} />
+                    <Bar dataKey="profit" fill="hsl(var(--success))" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
             ) : (
               <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
                 Aucune donnée pour cette période
