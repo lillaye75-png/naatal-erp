@@ -3,15 +3,16 @@
 import { useState, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { PackageSearch, AlertTriangle, Search, Warehouse, Eye } from "lucide-react"
+import { PackageSearch, AlertTriangle, Search, Warehouse, Eye, Plus, Minus, RefreshCw, ArrowRightLeft, Loader2 } from "lucide-react"
 import { TableSkeleton } from "@/components/shared/Skeleton"
 import { useAuthStore } from "@/stores/auth.store"
 import { getProducts } from "@/repositories/product.repository"
 import { getStockLevel, getLowStockProducts } from "@/services/inventory.service"
 import { formatXOF } from "@/lib/currency"
 import { toast } from "sonner"
-import { collection, getDocs, query, where } from "firebase/firestore"
+import { collection, getDocs, query, where, doc, setDoc, Timestamp } from "firebase/firestore"
 import { initializeFirebase } from "@/lib/firebase"
 import type { Product, Warehouse as WarehouseType, InventoryMovement } from "@/types"
 import { useWarehouseName } from "@/hooks/useWarehouses"
@@ -20,6 +21,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog"
 import {
   Select,
@@ -48,7 +50,15 @@ export default function InventoryPage() {
   const [movementProduct, setMovementProduct] = useState<Product | null>(null)
   const [movements, setMovements] = useState<InventoryMovement[]>([])
   const [movementsLoading, setMovementsLoading] = useState(false)
+  const [showAddMovement, setShowAddMovement] = useState(false)
+  const [addMovementProduct, setAddMovementProduct] = useState<Product | null>(null)
+  const [movementType, setMovementType] = useState<'IN' | 'OUT' | 'ADJUSTMENT' | 'TRANSFER'>('IN')
+  const [movementQty, setMovementQty] = useState("0")
+  const [movementNote, setMovementNote] = useState("")
+  const [movementWarehouse, setMovementWarehouse] = useState("")
+  const [movementSubmitting, setMovementSubmitting] = useState(false)
   const tenantId = useAuthStore((s) => s.tenant?.id)
+  const userId = useAuthStore((s) => s.user?.id)
   const getWarehouseName = useWarehouseName(tenantId)
 
   useEffect(() => {
@@ -114,6 +124,54 @@ export default function InventoryPage() {
     TRANSFER: 'Transfert',
   }
 
+  const MOVEMENT_TYPE_OPTIONS: { value: string; label: string; icon: React.ReactNode }[] = [
+    { value: 'IN', label: 'Entrée', icon: <Plus className="w-4 h-4 text-green-600" /> },
+    { value: 'OUT', label: 'Sortie', icon: <Minus className="w-4 h-4 text-red-600" /> },
+    { value: 'ADJUSTMENT', label: 'Ajustement', icon: <RefreshCw className="w-4 h-4 text-yellow-600" /> },
+    { value: 'TRANSFER', label: 'Transfert', icon: <ArrowRightLeft className="w-4 h-4 text-purple-600" /> },
+  ]
+
+  const handleAddMovement = async () => {
+    if (!tenantId || !userId || !addMovementProduct) return
+    const qty = parseInt(movementQty) || 0
+    if (qty <= 0) { toast.error("La quantité doit être supérieure à 0"); return }
+    if (movementType === 'TRANSFER' && !movementWarehouse) { toast.error("Sélectionnez un entrepôt de destination"); return }
+    setMovementSubmitting(true)
+    try {
+      const { db } = await initializeFirebase()
+      const movRef = doc(collection(db, 'inventory_movements'))
+      await setDoc(movRef, {
+        id: movRef.id,
+        productId: addMovementProduct.id,
+        type: movementType === 'IN' ? 'PURCHASE' : movementType === 'OUT' ? 'SALE' : 'ADJUSTMENT',
+        qty: movementType === 'OUT' ? -qty : qty,
+        balance: 0,
+        note: movementNote || `Mouvement manuel: ${MOVEMENT_TYPE_OPTIONS.find(o => o.value === movementType)?.label || movementType}`,
+        referenceId: addMovementProduct.id,
+        warehouseId: movementType === 'TRANSFER' ? movementWarehouse : (addMovementProduct.warehouseId || ''),
+        tenantId,
+        createdAt: Timestamp.now().toMillis().toString(),
+        updatedAt: Timestamp.now().toMillis().toString(),
+        createdBy: userId,
+        updatedBy: userId,
+        isDeleted: false,
+        status: 'ACTIVE',
+      })
+      toast.success("Mouvement enregistré")
+      setShowAddMovement(false)
+      setAddMovementProduct(null)
+      setMovementQty("0")
+      setMovementNote("")
+      setMovementWarehouse("")
+      load()
+    } catch (err) {
+      console.error('Error creating movement:', err)
+      toast.error("Erreur lors de la création du mouvement")
+    } finally {
+      setMovementSubmitting(false)
+    }
+  }
+
   const filtered = products.filter(
     (p) => p.name.toLowerCase().includes(search.toLowerCase()),
   ).filter(
@@ -176,6 +234,10 @@ export default function InventoryPage() {
             ))}
           </SelectContent>
         </Select>
+        <Button variant="outline" size="sm" onClick={() => { setAddMovementProduct(products[0] || null); setShowAddMovement(true) }}>
+          <Plus className="w-4 h-4 mr-1" />
+          Mouvement
+        </Button>
       </div>
 
       {filtered.length === 0 ? (
@@ -285,6 +347,77 @@ export default function InventoryPage() {
               </table>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Add movement dialog */}
+      <Dialog open={showAddMovement} onOpenChange={(o) => { if (!o) { setShowAddMovement(false); setAddMovementProduct(null) } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <PackageSearch className="w-4 h-4" />
+              Nouveau mouvement de stock
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Produit</Label>
+              <Select value={addMovementProduct?.id || ''} onValueChange={(v) => setAddMovementProduct(products.find(p => p.id === v) || null)}>
+                <SelectTrigger><SelectValue placeholder="Sélectionner un produit" /></SelectTrigger>
+                <SelectContent>
+                  {products.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.name} (Stock: {stockMap[p.id] || 0})</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Type de mouvement</Label>
+              <div className="grid grid-cols-2 gap-2">
+                {MOVEMENT_TYPE_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setMovementType(opt.value as any)}
+                    className={`flex items-center gap-2 p-3 rounded-lg border text-sm transition-colors ${
+                      movementType === opt.value ? 'border-primary bg-primary/5' : 'hover:bg-muted'
+                    }`}
+                  >
+                    {opt.icon}
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Quantité</Label>
+              <Input type="number" value={movementQty} onChange={(e) => setMovementQty(e.target.value)} placeholder="0" min="1" />
+            </div>
+            {movementType === 'TRANSFER' && (
+              <div className="space-y-2">
+                <Label>Entrepôt de destination</Label>
+                <Select value={movementWarehouse} onValueChange={(v) => setMovementWarehouse(v ?? '')}>
+                  <SelectTrigger><SelectValue placeholder="Sélectionner un entrepôt" /></SelectTrigger>
+                  <SelectContent>
+                    {warehouses.map((w) => (
+                      <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label>Note (optionnelle)</Label>
+              <Input value={movementNote} onChange={(e) => setMovementNote(e.target.value)} placeholder="Raison du mouvement..." />
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => { setShowAddMovement(false); setAddMovementProduct(null) }}>Annuler</Button>
+              <Button onClick={handleAddMovement} disabled={movementSubmitting}>
+                {movementSubmitting ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null}
+                Enregistrer
+              </Button>
+            </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

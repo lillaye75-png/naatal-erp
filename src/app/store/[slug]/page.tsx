@@ -4,8 +4,11 @@ import { useState, useEffect, useCallback } from "react"
 import { collection, query, where, getDocs, doc, setDoc, Timestamp } from "firebase/firestore"
 import { initializeFirebase } from "@/lib/firebase"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Card, CardContent } from "@/components/ui/card"
-import { ShoppingCart, Plus, Minus, Trash2, Loader2, Store, Phone, X, ShoppingBag } from "lucide-react"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { ShoppingCart, Plus, Minus, Loader2, Store, Phone, X, ShoppingBag, Package, ClipboardList, MapPin } from "lucide-react"
 import { formatXOF } from "@/lib/currency"
 import { buildWhatsAppUrl } from "@/lib/whatsapp"
 import { toast } from "sonner"
@@ -53,6 +56,22 @@ export default function StorefrontPage() {
   const [trackedOrder, setTrackedOrder] = useState<any | null>(null)
   const [cartOpen, setCartOpen] = useState(false)
 
+  // Customer info state
+  const [customerName, setCustomerName] = useState("")
+  const [customerPhone, setCustomerPhone] = useState("")
+  const [showCustomerForm, setShowCustomerForm] = useState(false)
+
+  // Track order state
+  const [trackDialogOpen, setTrackDialogOpen] = useState(false)
+  const [trackName, setTrackName] = useState("")
+  const [trackPhone, setTrackPhone] = useState("")
+  const [trackUuid, setTrackUuid] = useState("")
+  const [trackResult, setTrackResult] = useState<any | null>(null)
+  const [trackSearching, setTrackSearching] = useState(false)
+
+  // Order confirmation popup
+  const [orderConfirmation, setOrderConfirmation] = useState<any | null>(null)
+
   useEffect(() => {
     if (!trackId || !store) return
     initializeFirebase().then(async ({ db }) => {
@@ -74,7 +93,6 @@ export default function StorefrontPage() {
       try {
         const { db } = await initializeFirebase()
 
-        // Look up storefront by slug
         const sfSnap = await getDocs(query(
           collection(db, 'storefronts'),
           where('slug', '==', slug),
@@ -91,7 +109,6 @@ export default function StorefrontPage() {
         if (cancelled) return
         setStore(sfData)
 
-        // Load products for this tenant (show all by default; hide only if isSoldOnline === false)
         const prodSnap = await getDocs(query(
           collection(db, 'products'),
           where('tenantId', '==', sfData.tenantId),
@@ -118,9 +135,7 @@ export default function StorefrontPage() {
               chunk.forEach((pid) => { stockMap[pid] = grouped[pid] ?? null })
             }
             if (!cancelled) setStocks(stockMap)
-          } catch {
-            // If stock query fails, stockMap stays empty; products will show "?" instead of stock
-          }
+          } catch {}
         }
       } catch (err) {
         console.error('Error loading storefront:', err)
@@ -156,7 +171,16 @@ export default function StorefrontPage() {
 
   const cartTotal = cart.reduce((sum, i) => sum + i.price * i.qty, 0)
 
-  const handleWhatsAppOrder = useCallback(async () => {
+  const openCustomerForm = () => {
+    if (cart.length === 0) { toast.error("Panier vide"); return }
+    setShowCustomerForm(true)
+  }
+
+  const handlePlaceOrder = useCallback(async () => {
+    if (!customerName.trim() || !customerPhone.trim()) {
+      toast.error("Veuillez saisir votre nom et téléphone")
+      return
+    }
     if (cart.length === 0) return
     if (!store?.tenantId) {
       toast.error('Boutique non configurée')
@@ -164,11 +188,12 @@ export default function StorefrontPage() {
     }
 
     let trackingId = ''
+    let savedOrder: any = null
     try {
       const { db } = await initializeFirebase()
       const orderRef = doc(collection(db, 'orders'))
       trackingId = orderRef.id.slice(-8).toUpperCase()
-      await setDoc(orderRef, {
+      const orderData = {
         id: orderRef.id,
         trackingId,
         storefrontId: store.id,
@@ -176,13 +201,15 @@ export default function StorefrontPage() {
         items: cart.map((i) => ({ productId: i.productId, name: i.name, price: i.price, qty: i.qty })),
         total: cartTotal,
         status: 'CONFIRMED',
-        customerPhone: '',
-        customerName: '',
+        customerPhone: customerPhone.trim(),
+        customerName: customerName.trim(),
         source: 'storefront',
         paymentMethod: 'CASH',
         createdAt: Timestamp.now().toMillis().toString(),
         updatedAt: Timestamp.now().toMillis().toString(),
-      })
+      }
+      await setDoc(orderRef, orderData)
+      savedOrder = orderData
     } catch (err) {
       console.error('Error saving order:', err)
       toast.error("Erreur lors de l'enregistrement de la commande")
@@ -194,6 +221,7 @@ export default function StorefrontPage() {
     const message = [
       `🛍️ *Nouvelle commande*`,
       `Boutique: ${store?.name || 'Boutique'}`,
+      `Client: ${customerName.trim()} - ${customerPhone.trim()}`,
       '',
       ...lines,
       '',
@@ -212,9 +240,44 @@ export default function StorefrontPage() {
     }
     const url = buildWhatsAppUrl(phone, message)
     window.open(url, '_blank')
+    setShowCustomerForm(false)
+    setOrderConfirmation(savedOrder)
     setCart([])
-    toast.success(`Commande enregistrée — Suivi: ${trackingId}`)
-  }, [cart, cartTotal, store, slug])
+  }, [cart, cartTotal, store, slug, customerName, customerPhone])
+
+  const handleTrackOrder = useCallback(async () => {
+    if (!trackName.trim() || !trackPhone.trim() || !trackUuid.trim()) {
+      toast.error("Veuillez remplir tous les champs de suivi")
+      return
+    }
+    if (!store?.tenantId) return
+    setTrackSearching(true)
+    setTrackResult(null)
+    try {
+      const { db } = await initializeFirebase()
+      const snap = await getDocs(query(
+        collection(db, 'orders'),
+        where('trackingId', '==', trackUuid.trim().toUpperCase()),
+        where('tenantId', '==', store.tenantId),
+      ))
+      if (snap.empty) {
+        setTrackResult({ notFound: true })
+      } else {
+        const order = { id: snap.docs[0].id, ...snap.docs[0].data() } as any
+        if (order.customerName?.toLowerCase() === trackName.trim().toLowerCase() &&
+            order.customerPhone === trackPhone.trim()) {
+          setTrackResult(order)
+        } else {
+          setTrackResult({ notFound: true })
+        }
+      }
+    } catch (err) {
+      console.error('Track error:', err)
+      toast.error("Erreur lors du suivi")
+    } finally {
+      setTrackSearching(false)
+    }
+  }, [trackName, trackPhone, trackUuid, store])
 
   if (loading) {
     return (
@@ -287,7 +350,11 @@ export default function StorefrontPage() {
             <h1 className="text-lg font-bold">{store.name}</h1>
             <p className="text-xs text-muted-foreground">Boutique en ligne</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setTrackDialogOpen(true)}>
+              <MapPin className="w-3.5 h-3.5 mr-1" />
+              Suivre
+            </Button>
             {!trackedOrder && (
               <Button size="sm" onClick={() => setCartOpen(true)} className="relative">
                 <ShoppingBag className="w-4 h-4 mr-1" />
@@ -358,19 +425,170 @@ export default function StorefrontPage() {
             </div>
             {cart.length > 0 && (
               <div className="border-t p-4 space-y-3">
+                <button
+                  className="w-full text-xs text-muted-foreground hover:text-foreground flex items-center justify-center gap-1 mb-2"
+                  onClick={() => { setCartOpen(false); setTrackDialogOpen(true) }}
+                >
+                  <MapPin className="w-3 h-3" />
+                  Suivre une commande existante
+                </button>
                 <div className="flex justify-between font-semibold text-lg">
                   <span>Total</span>
                   <span>{formatXOF(cartTotal)}</span>
                 </div>
-                <Button className="w-full" onClick={() => { setCartOpen(false); handleWhatsAppOrder() }}>
+                <Button className="w-full" onClick={() => { setCartOpen(false); openCustomerForm() }}>
                   <Phone className="w-4 h-4 mr-2" />
-                  Commander via WhatsApp
+                  Commander
                 </Button>
               </div>
             )}
           </div>
         </div>
       )}
+
+      {/* Customer info form dialog */}
+      <Dialog open={showCustomerForm} onOpenChange={setShowCustomerForm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ClipboardList className="w-4 h-4" />
+              Vos coordonnées
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="bg-muted/50 rounded-lg p-3 space-y-1 text-sm">
+              <p className="font-medium">Récapitulatif de la commande</p>
+              {cart.map((item) => (
+                <div key={item.productId} className="flex justify-between text-muted-foreground">
+                  <span>{item.name} x{item.qty}</span>
+                  <span>{formatXOF(item.price * item.qty)}</span>
+                </div>
+              ))}
+              <div className="flex justify-between font-semibold pt-1 border-t mt-1">
+                <span>Total</span>
+                <span>{formatXOF(cartTotal)}</span>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Nom complet *</Label>
+              <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Votre nom" />
+            </div>
+            <div className="space-y-2">
+              <Label>Téléphone *</Label>
+              <Input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="77 123 45 67" type="tel" />
+            </div>
+            <Button className="w-full" onClick={handlePlaceOrder}>
+              <Phone className="w-4 h-4 mr-2" />
+              Confirmer et commander via WhatsApp
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Order confirmation popup */}
+      <Dialog open={!!orderConfirmation} onOpenChange={(o) => { if (!o) setOrderConfirmation(null) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-success">
+              <Package className="w-4 h-4" />
+              Commande confirmée !
+            </DialogTitle>
+          </DialogHeader>
+          {orderConfirmation && (
+            <div className="space-y-4">
+              <div className="bg-success/10 rounded-lg p-4 text-center">
+                <p className="text-2xl font-bold tracking-wider text-success">{orderConfirmation.trackingId}</p>
+                <p className="text-xs text-muted-foreground mt-1">Code de suivi</p>
+              </div>
+              <div className="space-y-1 text-sm">
+                <p><span className="text-muted-foreground">Client :</span> <span className="font-medium">{orderConfirmation.customerName}</span></p>
+                <p><span className="text-muted-foreground">Téléphone :</span> {orderConfirmation.customerPhone}</p>
+                <p><span className="text-muted-foreground">Total :</span> <span className="font-semibold">{formatXOF(orderConfirmation.total)}</span></p>
+              </div>
+              <div className="text-xs text-muted-foreground bg-muted rounded-lg p-3">
+                <p>Vous allez être redirigé vers WhatsApp pour finaliser votre commande.</p>
+                <p className="mt-1">Utilisez le code <strong>{orderConfirmation.trackingId}</strong> pour suivre votre commande.</p>
+              </div>
+              <Button variant="outline" className="w-full" onClick={() => { setOrderConfirmation(null) }}>
+                Fermer
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Track order dialog */}
+      <Dialog open={trackDialogOpen} onOpenChange={(o) => { if (!o) { setTrackDialogOpen(false); setTrackResult(null) } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MapPin className="w-4 h-4" />
+              Suivre ma commande
+            </DialogTitle>
+          </DialogHeader>
+          {trackResult ? (
+            trackResult.notFound ? (
+              <div className="space-y-4">
+                <div className="text-center py-4">
+                  <Package className="w-12 h-12 mx-auto text-muted-foreground/40 mb-2" />
+                  <p className="font-medium">Commande introuvable</p>
+                  <p className="text-sm text-muted-foreground">Vérifiez vos informations et réessayez</p>
+                </div>
+                <Button variant="outline" className="w-full" onClick={() => setTrackResult(null)}>Réessayer</Button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="bg-primary/10 rounded-lg p-4 text-center">
+                  <p className="text-2xl font-bold tracking-wider">{trackResult.trackingId}</p>
+                  <p className="text-xs text-muted-foreground mt-1">Code de suivi</p>
+                </div>
+                <div className="flex items-center justify-between gap-1 text-xs">
+                  {['CONFIRMED', 'PREPARING', 'SHIPPED', 'DELIVERED'].map((step, i) => {
+                    const statuses = ['CONFIRMED', 'PREPARING', 'SHIPPED', 'DELIVERED']
+                    const currentIdx = statuses.indexOf(trackResult.status)
+                    const isPast = i <= currentIdx
+                    return (
+                      <div key={step} className="flex flex-col items-center gap-1 flex-1">
+                        <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                          isPast ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+                        }`}>{isPast ? '✓' : i + 1}</div>
+                        <span className={`${isPast ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
+                          {step === 'CONFIRMED' ? 'Confirmée' : step === 'PREPARING' ? 'Prépa.' : step === 'SHIPPED' ? 'Expédiée' : 'Livrée'}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+                <div className="text-sm space-y-1 text-muted-foreground">
+                  <p><span className="font-medium text-foreground">Client :</span> {trackResult.customerName}</p>
+                  <p><span className="font-medium text-foreground">Total :</span> {formatXOF(trackResult.total || 0)}</p>
+                  {trackResult.status === 'CANCELLED' && <p className="text-destructive font-medium">Cette commande a été annulée</p>}
+                </div>
+                <Button variant="outline" className="w-full" onClick={() => { setTrackDialogOpen(false); setTrackResult(null) }}>Fermer</Button>
+              </div>
+            )
+          ) : (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Nom complet *</Label>
+                <Input value={trackName} onChange={(e) => setTrackName(e.target.value)} placeholder="Votre nom" />
+              </div>
+              <div className="space-y-2">
+                <Label>Téléphone *</Label>
+                <Input value={trackPhone} onChange={(e) => setTrackPhone(e.target.value)} placeholder="77 123 45 67" type="tel" />
+              </div>
+              <div className="space-y-2">
+                <Label>Code de suivi *</Label>
+                <Input value={trackUuid} onChange={(e) => setTrackUuid(e.target.value)} placeholder="Ex: A1B2C3D4" />
+              </div>
+              <Button className="w-full" onClick={handleTrackOrder} disabled={trackSearching}>
+                {trackSearching ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <MapPin className="w-4 h-4 mr-2" />}
+                Suivre ma commande
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <main className="max-w-6xl mx-auto px-4 py-6">
         {products.length === 0 ? (
@@ -384,7 +602,6 @@ export default function StorefrontPage() {
             {products.map((product) => {
               const stock = stocks[product.id] ?? null
               const isOutOfStock = stock !== null && stock <= 0
-              const stockUnknown = stock === null
               return (
               <Card key={product.id} className="overflow-hidden hover:shadow-md transition-shadow relative">
                 <div className="w-full h-40 bg-muted flex items-center justify-center text-muted-foreground text-xs">

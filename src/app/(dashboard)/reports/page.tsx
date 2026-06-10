@@ -45,17 +45,20 @@ export default function ReportsPage() {
           <p className="text-sm text-muted-foreground mt-1">Analyses et indicateurs</p>
         </div>
         <div className="flex items-center gap-2">
-          <Select value={period} onValueChange={(v) => setPeriod(v ?? 'month')}>
-            <SelectTrigger className="w-[140px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="day">Aujourd'hui</SelectItem>
-              <SelectItem value="week">Cette semaine</SelectItem>
-              <SelectItem value="month">Ce mois</SelectItem>
-              <SelectItem value="year">Cette année</SelectItem>
-            </SelectContent>
-          </Select>
+        <div className="flex items-center gap-1 bg-muted rounded-lg p-1">
+          {(['day', 'week', 'month', 'year'] as const).map((p) => (
+            <button
+              key={p}
+              onClick={() => setPeriod(p)}
+              className={cn(
+                "px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
+                period === p ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {p === 'day' ? 'Aujourd\'hui' : p === 'week' ? 'Cette semaine' : p === 'month' ? 'Ce mois' : 'Cette année'}
+            </button>
+          ))}
+        </div>
         </div>
       </div>
 

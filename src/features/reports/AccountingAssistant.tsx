@@ -20,6 +20,8 @@ interface AssistantData {
   topProduct: { name: string; total: number } | null
   totalProducts: number
   totalCustomers: number
+  totalExpenses: number
+  totalRevenue: number
 }
 
 const SUGGESTED_QUESTIONS = [
@@ -29,6 +31,12 @@ const SUGGESTED_QUESTIONS = [
   "Quel produit se vend le mieux ?",
   "Quel est le montant total des dettes ?",
   "Combien de clients avons-nous ?",
+  "Ajouter une dépense",
+  "Créer une facture",
+  "Enregistrer une vente",
+  "Quelles sont mes dépenses du mois ?",
+  "Quel est le bénéfice net ?",
+  "Combien de produits en stock ?",
 ]
 
 export function AccountingAssistant({ startDate, endDate }: { startDate: number; endDate: number }) {
@@ -50,15 +58,17 @@ export function AccountingAssistant({ startDate, endDate }: { startDate: number;
         todayStart.setHours(0, 0, 0, 0)
         const todayTs = todayStart.getTime().toString()
 
-        const [salesSnap, custSnap, prodSnap] = await Promise.all([
+        const [salesSnap, custSnap, prodSnap, expSnap] = await Promise.all([
           getDocs(query(collection(db, 'sales'), where('tenantId', '==', tenantId), where('isDeleted', '==', false))),
           getDocs(query(collection(db, 'customers'), where('tenantId', '==', tenantId), where('isDeleted', '==', false))),
           getDocs(query(collection(db, 'products'), where('tenantId', '==', tenantId), where('isDeleted', '==', false))),
+          getDocs(query(collection(db, 'expenses'), where('tenantId', '==', tenantId), where('isDeleted', '==', false))),
         ])
 
         const sales = salesSnap.docs.map((d) => ({ id: d.id, ...d.data() } as any))
         const customers = custSnap.docs.map((d) => ({ id: d.id, ...d.data() } as any))
         const products = prodSnap.docs.map((d) => ({ id: d.id, ...d.data() } as any))
+        const expenses = expSnap.docs.map((d) => ({ id: d.id, ...d.data() } as any))
 
         const todaySales = sales
           .filter((s: any) => s.createdAt >= todayTs && s.invoiceType !== 'PROFORMA' && s.invoiceType !== 'QUOTATION' && s.invoiceType !== 'CREDIT_NOTE')
@@ -92,6 +102,10 @@ export function AccountingAssistant({ startDate, endDate }: { startDate: number;
           ? { name: products.find((p: any) => p.id === topProdId)?.name || topProdId, total: productSales[topProdId] }
           : null
 
+        const validSales = sales.filter((s: any) => s.invoiceType !== 'PROFORMA' && s.invoiceType !== 'QUOTATION' && s.invoiceType !== 'CREDIT_NOTE')
+        const totalRevenue = validSales.reduce((sum: number, s: any) => sum + (s.total || 0), 0)
+        const totalExpenses = expenses.reduce((sum: number, e: any) => sum + (e.amount || 0), 0)
+
         if (!cancelled) {
           setData({
             todaySales,
@@ -102,6 +116,8 @@ export function AccountingAssistant({ startDate, endDate }: { startDate: number;
             topProduct,
             totalProducts: products.length,
             totalCustomers: customers.length,
+            totalExpenses,
+            totalRevenue,
           })
         }
       } catch (err) {
@@ -137,6 +153,21 @@ export function AccountingAssistant({ startDate, endDate }: { startDate: number;
       setAnswer(`👥 Vous avez **${data.totalCustomers} client(s)** enregistrés.`)
     } else if (qLower.includes("produit")) {
       setAnswer(`📦 Vous avez **${data.totalProducts} produit(s)** dans votre catalogue.`)
+    } else if (qLower.includes("dépense") || qLower.includes("depense")) {
+      if (qLower.includes("ajouter")) {
+        setAnswer(`📝 Pour ajouter une dépense, allez dans le menu **Dépenses** et cliquez sur **Nouvelle dépense**. Vous pouvez aussi me donner le montant et la catégorie et je vous guiderai.`)
+      } else {
+        setAnswer(`💰 Total des dépenses : **${formatXOF(data.totalExpenses)}**`)
+      }
+    } else if (qLower.includes("facture") && (qLower.includes("créer") || qLower.includes("creer"))) {
+      setAnswer(`📄 Pour créer une facture, allez dans **Ventes > Nouvelle vente**, sélectionnez **Proforma** ou **Devis** comme type de document.`)
+    } else if (qLower.includes("vente") && (qLower.includes("enregistrer") || qLower.includes("nouvelle") || qLower.includes("créer"))) {
+      setAnswer(`🛒 Pour enregistrer une vente, allez dans **Ventes > Nouvelle vente** ou utilisez le **Point de vente (POS)** pour des ventes rapides.`)
+    } else if (qLower.includes("bénéfice") || qLower.includes("benefice") || qLower.includes("profit")) {
+      const profit = data.totalRevenue - data.totalExpenses
+      setAnswer(`📊 **Bénéfice net : ${formatXOF(profit)}**\n\n• Revenus : ${formatXOF(data.totalRevenue)}\n• Dépenses : ${formatXOF(data.totalExpenses)}`)
+    } else if (qLower.includes("stock") && (qLower.includes("total") || qLower.includes("combien"))) {
+      setAnswer(`📦 Vous avez **${data.totalProducts} produit(s)** en catalogue. ${data.lowStockCount} ont un stock faible.`)
     } else {
       setAnswer(`🤖 Voici un résumé rapide :\n\n• Ventes du jour : ${formatXOF(data.todaySales)} (${data.todaySalesCount} vente(s))\n• Total dettes : ${formatXOF(data.totalDebt)}\n• Produits : ${data.totalProducts}\n• Clients : ${data.totalCustomers}\n• Stock faible : ${data.lowStockCount} produit(s)\n\nPosez une question plus précise sur les ventes, dettes, stocks, produits ou clients.`)
     }
