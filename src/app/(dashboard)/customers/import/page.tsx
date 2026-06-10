@@ -64,11 +64,34 @@ export default function CustomersImportPage() {
 
   async function handleDownloadTemplate() {
     const XLSX = await import('xlsx')
-    const ws = XLSX.utils.aoa_to_sheet([
-      ['name', 'phone', 'email', 'address', 'creditLimit', 'groupId', 'language'],
-      ['Dupont Jean', '771234567', 'jean@exemple.com', 'Dakar, Sénégal', '500000', 'groupe001', 'fr'],
-      ['Diallo Awa', '781234567', '', 'Thiès, Sénégal', '200000', '', 'wo'],
-    ])
+    const headers = ['name', 'phone', 'email', 'address', 'creditLimit', 'groupId', 'language']
+    let exampleRows: any[][] = []
+
+    try {
+      if (tenantId) {
+        const { db } = await initializeFirebase()
+        const snap = await getDocs(query(
+          collection(db, 'customers'),
+          where('tenantId', '==', tenantId),
+          where('isDeleted', '==', false),
+        ))
+        if (!snap.empty) {
+          exampleRows = snap.docs.slice(0, 10).map((d) => {
+            const c = d.data() as any
+            return [c.name || '', c.phone || '', c.email || '', c.address || '', c.creditLimit || '', c.groupId || '', c.language || '']
+          })
+        }
+      }
+    } catch {}
+
+    if (exampleRows.length === 0) {
+      exampleRows = [
+        ['Dupont Jean', '771234567', 'jean@exemple.com', 'Dakar, Sénégal', '500000', 'groupe001', 'fr'],
+        ['Diallo Awa', '781234567', '', 'Thiès, Sénégal', '200000', '', 'wo'],
+      ]
+    }
+
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...exampleRows])
     ws['!cols'] = [
       { wch: 20 }, { wch: 15 }, { wch: 30 }, { wch: 25 }, { wch: 15 }, { wch: 15 }, { wch: 10 },
     ]

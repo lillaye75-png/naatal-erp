@@ -9,9 +9,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch"
 import { TableSkeleton } from "@/components/shared/Skeleton"
 import { useAuthStore } from "@/stores/auth.store"
-import { collection, doc, getDoc, getDocs, query, where, addDoc, updateDoc, Timestamp } from 'firebase/firestore'
+import { collection, doc, getDoc, getDocs, query, where, addDoc, updateDoc, setDoc, Timestamp } from 'firebase/firestore'
 import { initializeFirebase } from '@/lib/firebase'
-import { Building2, FileText, Smartphone, Globe, Settings2, Save, Plug, Wifi, Users, Upload, X, Plus, UserCheck, Mail } from "lucide-react"
+import { Building2, FileText, Smartphone, Globe, Settings2, Save, Plug, Wifi, Users, Upload, X, Plus, UserCheck, Mail, Download, Clock, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { testWaveConnection } from "@/lib/wave"
 import { testOrangeMoneyConnection } from "@/lib/orange-money"
@@ -64,6 +64,11 @@ export default function SettingsPage() {
   const [inviteEmail, setInviteEmail] = useState("")
   const [inviteRole, setInviteRole] = useState("employee")
   const [roles, setRoles] = useState<any[]>([])
+  const [backingUp, setBackingUp] = useState(false)
+  const [restoring, setRestoring] = useState(false)
+  const [autoBackup, setAutoBackup] = useState(false)
+  const [backupTime, setBackupTime] = useState("02:00")
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const load = useCallback(async () => {
     if (!tenantId) { setLoading(false); return }
@@ -259,12 +264,72 @@ export default function SettingsPage() {
     }
   }
 
+  const handleBackup = async () => {
+    if (!tenantId) return
+    setBackingUp(true)
+    try {
+      const { db } = await initializeFirebase()
+      const collections = ['products', 'customers', 'sales', 'suppliers', 'expenses', 'payments', 'invoices', 'inventory_movements', 'categories', 'brands', 'units', 'warehouses', 'orders', 'storefronts', 'cash_registers']
+      const backup: Record<string, any[]> = {}
+      for (const name of collections) {
+        const snap = await getDocs(query(collection(db, name), where('tenantId', '==', tenantId)))
+        backup[name] = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+      }
+      const blob = new Blob([JSON.stringify({ tenantId, exportedAt: new Date().toISOString(), data: backup }, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `naatal-backup-${new Date().toISOString().split('T')[0]}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+      toast.success("Sauvegarde téléchargée")
+    } catch (err) {
+      console.error('Backup error:', err)
+      toast.error("Erreur lors de la sauvegarde")
+    } finally {
+      setBackingUp(false)
+    }
+  }
+
+  const handleRestore = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !tenantId) return
+    setRestoring(true)
+    try {
+      const text = await file.text()
+      const backup = JSON.parse(text)
+      if (!backup.data || !backup.tenantId) { toast.error("Fichier de sauvegarde invalide"); return }
+
+      const { db } = await initializeFirebase()
+      const collections = Object.keys(backup.data)
+      let restored = 0
+      for (const colName of collections) {
+        const docs = backup.data[colName] || []
+        for (const docData of docs) {
+          const ref = doc(db, colName, docData.id)
+          await setDoc(ref, docData, { merge: true })
+          restored++
+        }
+      }
+      toast.success(`${restored} documents restaurés`)
+      load()
+    } catch (err) {
+      console.error('Restore error:', err)
+      toast.error("Erreur lors de la restauration")
+    } finally {
+      setRestoring(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
   const tabs = [
     { id: "business", label: "Business", icon: Building2 },
     { id: "invoice", label: "Facturation", icon: FileText },
     { id: "payments", label: "Paiements", icon: Smartphone },
     { id: "store", label: "Boutique en ligne", icon: Globe },
+    { id: "store", label: "Boutique en ligne", icon: Globe },
     { id: "users", label: "Utilisateurs & Rôles", icon: Users },
+    { id: "backup", label: "Sauvegarde", icon: Download },
   ]
 
   const handleLogoUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -651,6 +716,77 @@ export default function SettingsPage() {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {tab === "backup" && (
+        <div className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Download className="w-4 h-4" />
+                Sauvegarder les données
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Exportez toutes vos données (produits, clients, ventes, etc.) dans un fichier JSON.
+              </p>
+              <Button onClick={handleBackup} disabled={backingUp}>
+                {backingUp ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Download className="w-4 h-4 mr-1" />}
+                {backingUp ? "Sauvegarde en cours..." : "Télécharger la sauvegarde"}
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Upload className="w-4 h-4" />
+                Restaurer les données
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Importez un fichier de sauvegarde JSON pour restaurer vos données. Les documents existants seront mis à jour.
+              </p>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".json"
+                className="hidden"
+                onChange={handleRestore}
+              />
+              <Button variant="outline" onClick={() => fileInputRef.current?.click()} disabled={restoring}>
+                {restoring ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Upload className="w-4 h-4 mr-1" />}
+                {restoring ? "Restauration en cours..." : "Choisir un fichier de sauvegarde"}
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Clock className="w-4 h-4" />
+                Sauvegarde automatique
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center gap-2">
+                <Switch checked={autoBackup} onCheckedChange={setAutoBackup} />
+                <Label>Activer la sauvegarde automatique</Label>
+              </div>
+              {autoBackup && (
+                <div className="space-y-2">
+                  <Label>Heure de sauvegarde</Label>
+                  <Input type="time" value={backupTime} onChange={(e) => setBackupTime(e.target.value)} className="w-[200px]" />
+                  <p className="text-xs text-muted-foreground">
+                    La sauvegarde sera téléchargée automatiquement chaque jour à {backupTime}.
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
       )}
 

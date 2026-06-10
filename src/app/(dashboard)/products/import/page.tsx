@@ -71,12 +71,34 @@ export default function ProductsImportPage() {
 
   async function handleDownloadTemplate() {
     const XLSX = await import('xlsx')
-    const ws = XLSX.utils.aoa_to_sheet([
-      ['name', 'sku', 'price', 'costPrice', 'categoryId', 'brandId', 'unitId', 'warehouseId', 'minStock', 'initialStock', 'barcode', 'imageUrl', 'description', 'isSoldOnline'],
-      ['Huile d olive 1L', 'HUILE-001', '1500', '1000', 'cat001', 'br001', 'l', 'wh001', '5', '50', '123456789', 'https://exemple.com/huile.jpg', 'Huile d olive vierge 1L', 'oui'],
-      ['Riz 5kg', 'RIZ-001', '3500', '2800', 'cat002', 'br002', 'kg', 'wh001', '10', '30', '', '', 'Riz parfumé 5kg', 'non'],
-      ['Savon liquide', 'SAV-001', '800', '500', 'cat003', 'br003', 'piece', 'wh002', '20', '100', '', '', 'Savon liquide 500ml', 'oui'],
-    ])
+    const headers = ['name', 'sku', 'price', 'costPrice', 'categoryId', 'brandId', 'unitId', 'warehouseId', 'minStock', 'initialStock', 'barcode', 'imageUrl', 'description', 'isSoldOnline']
+    let exampleRows: any[][] = []
+
+    try {
+      if (tenantId) {
+        const { db } = await initializeFirebase()
+        const snap = await getDocs(query(
+          collection(db, 'products'),
+          where('tenantId', '==', tenantId),
+          where('isDeleted', '==', false),
+        ))
+        if (!snap.empty) {
+          exampleRows = snap.docs.slice(0, 10).map((d) => {
+            const p = d.data() as any
+            return [p.name || '', p.sku || '', p.price || '', p.costPrice || '', p.categoryId || '', p.brandId || '', p.unitId || '', p.warehouseId || '', p.minStock || '', p.initialStock || '', p.barcode || '', p.imageUrl || '', p.description || '', p.isSoldOnline ? 'oui' : 'non']
+          })
+        }
+      }
+    } catch {}
+
+    if (exampleRows.length === 0) {
+      exampleRows = [
+        ['Huile d olive 1L', 'HUILE-001', '1500', '1000', 'cat001', 'br001', 'l', 'wh001', '5', '50', '123456789', 'https://exemple.com/huile.jpg', 'Huile d olive vierge 1L', 'oui'],
+        ['Riz 5kg', 'RIZ-001', '3500', '2800', 'cat002', 'br002', 'kg', 'wh001', '10', '30', '', '', 'Riz parfumé 5kg', 'non'],
+      ]
+    }
+
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...exampleRows])
     ws['!cols'] = [
       { wch: 25 }, { wch: 15 }, { wch: 10 }, { wch: 15 }, { wch: 12 },
       { wch: 12 }, { wch: 8 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 15 }, { wch: 30 }, { wch: 30 }, { wch: 14 },
