@@ -75,8 +75,8 @@ export function InvoiceModal({
     tax: isCreditNote ? -(sale.tax || 0) : (sale.tax || 0),
     discount: isCreditNote ? -(sale.discount || 0) : (sale.discount || 0),
     total: isCreditNote ? -invoice.total : invoice.total,
-    paid: isProforma ? 0 : paid,
-    balance: isProforma ? 0 : balance,
+    paid: isProforma || isCreditNote ? 0 : paid,
+    balance: isProforma || isCreditNote ? 0 : balance,
     dueDate: invoice.dueDate || undefined,
     invoiceType: sale.invoiceType,
   }
@@ -100,8 +100,8 @@ export function InvoiceModal({
     discount: isCreditNote ? -(sale.discount || 0) : (sale.discount || 0),
     tax: isCreditNote ? -(sale.tax || 0) : (sale.tax || 0),
     total: isCreditNote ? -invoice.total : invoice.total,
-    paid: isProforma ? 0 : paid,
-    balance: isProforma ? 0 : balance,
+    paid: isProforma || isCreditNote ? 0 : paid,
+    balance: isProforma || isCreditNote ? 0 : balance,
     footerText: invoiceFooter,
     invoiceType: sale.invoiceType,
   }

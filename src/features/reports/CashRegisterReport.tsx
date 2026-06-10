@@ -5,12 +5,20 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { TableSkeleton } from "@/components/shared/Skeleton"
 import { useAuthStore } from "@/stores/auth.store"
-import { collection, getDocs, query, where } from "firebase/firestore"
+import { collection, getDocs, query, where, Timestamp } from "firebase/firestore"
 import { initializeFirebase } from "@/lib/firebase"
 import { formatXOF } from "@/lib/currency"
 import { ExportTools } from "./ExportTools"
 import { DollarSign, TrendingUp, TrendingDown, CheckCircle } from "lucide-react"
 import { toast } from "sonner"
+
+function tsToMillis(v: unknown): number {
+  if (!v) return 0
+  if (v instanceof Timestamp) return v.toMillis()
+  if (typeof v === 'object' && v !== null && 'seconds' in v) return (v as any).seconds * 1000
+  const n = parseInt(String(v))
+  return isNaN(n) ? 0 : n
+}
 
 export function CashRegisterReport({ startDate, endDate }: { startDate: number; endDate: number }) {
   const [loading, setLoading] = useState(true)
@@ -30,7 +38,7 @@ export function CashRegisterReport({ startDate, endDate }: { startDate: number; 
       const allSessions = snap.docs
         .map((d) => ({ id: d.id, ...d.data() } as any))
         .filter((s) => {
-          const opened = parseInt(s.openedAt || '0')
+          const opened = tsToMillis(s.openedAt)
           return opened >= startDate && opened <= endDate
         })
       setSessions(allSessions)
@@ -55,8 +63,8 @@ export function CashRegisterReport({ startDate, endDate }: { startDate: number; 
     </div>
   )
 
-  const totalExpected = sessions.reduce((s, sess) => s + (sess.closingBalance || 0), 0)
-  const totalActual = sessions.reduce((s, sess) => s + (sess.actualClosing || sess.closingBalance || 0), 0)
+  const totalExpected = sessions.reduce((s, sess) => s + (sess.expectedBalance || 0), 0)
+  const totalActual = sessions.reduce((s, sess) => s + (sess.closingAmount || sess.expectedBalance || 0), 0)
   const totalDifference = totalActual - totalExpected
 
   return (
@@ -65,11 +73,11 @@ export function CashRegisterReport({ startDate, endDate }: { startDate: number; 
         <h2 className="text-lg font-semibold">Rapport de caisse</h2>
         <ExportTools
           data={sessions.map((s) => ({
-            ouverture: s.openedAt ? new Date(parseInt(s.openedAt)).toLocaleDateString() : '-',
-            fermeture: s.closedAt ? new Date(parseInt(s.closedAt)).toLocaleDateString() : 'En cours',
+            ouverture: s.openedAt ? new Date(tsToMillis(s.openedAt)).toLocaleDateString() : '-',
+            fermeture: s.closedAt ? new Date(tsToMillis(s.closedAt)).toLocaleDateString() : 'En cours',
             soldeOuverture: s.openingBalance || 0,
-            soldeFermeture: s.closingBalance || 0,
-            difference: (s.actualClosing || s.closingBalance || 0) - (s.closingBalance || 0),
+            soldeFermeture: s.closingAmount || s.expectedBalance || 0,
+            difference: (s.closingAmount || s.expectedBalance || 0) - (s.expectedBalance || 0),
           }))}
           columns={[
             { key: "ouverture", label: "Ouverture" },
@@ -146,12 +154,12 @@ export function CashRegisterReport({ startDate, endDate }: { startDate: number; 
           </thead>
           <tbody>
             {sessions.map((s) => {
-              const expected = s.closingBalance || 0
-              const actual = s.actualClosing || expected
+              const expected = s.expectedBalance || 0
+              const actual = s.closingAmount || expected
               const diff = actual - expected
               return (
                 <tr key={s.id} className="border-t hover:bg-muted/30">
-                  <td className="p-3 text-sm">{new Date(parseInt(s.openedAt)).toLocaleDateString()}</td>
+                  <td className="p-3 text-sm">{new Date(tsToMillis(s.openedAt)).toLocaleDateString()}</td>
                   <td className="p-3 text-sm text-right">{formatXOF(s.openingBalance || 0)}</td>
                   <td className="p-3 text-sm text-right">{formatXOF(expected)}</td>
                   <td className="p-3 text-sm text-right">{formatXOF(actual)}</td>

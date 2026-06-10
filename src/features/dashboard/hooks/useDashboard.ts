@@ -98,8 +98,11 @@ export function useDashboard() {
 
   useEffect(() => {
     if (!todaySalesData) return
-    setTodaySales(todaySalesData.reduce((sum, s) => sum + (s.total || 0), 0))
-    const recent = todaySalesData.slice(0, 5).map((s) => ({
+    const filtered = todaySalesData.filter(
+      (s) => s.invoiceType !== 'PROFORMA' && s.invoiceType !== 'QUOTATION' && s.invoiceType !== 'CREDIT_NOTE'
+    )
+    setTodaySales(filtered.reduce((sum, s) => sum + (s.total || 0), 0))
+    const recent = filtered.slice(0, 5).map((s) => ({
       id: s.id,
       customerName: s.customerId
         ? customerMap.get(s.customerId) || 'Client inconnu'
@@ -109,7 +112,7 @@ export function useDashboard() {
     }))
     setRecentSales(recent)
     const dayTotals: Record<string, number> = {}
-    for (const sale of todaySalesData) {
+    for (const sale of filtered) {
       if (!sale.createdAt) continue
       const saleDate = new Date(parseInt(sale.createdAt, 10))
       const dayKey = saleDate.toDateString()
@@ -169,7 +172,9 @@ export function useDashboard() {
     alerts,
     recentSales,
     chartData,
-    todaySalesCount: todaySalesData?.length || 0,
+    todaySalesCount: (todaySalesData || []).filter(
+      (s) => s.invoiceType !== 'PROFORMA' && s.invoiceType !== 'QUOTATION' && s.invoiceType !== 'CREDIT_NOTE'
+    ).length,
     totalUsers,
     settings,
     loading: !todaySalesData,

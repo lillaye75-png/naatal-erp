@@ -20,6 +20,8 @@ export async function getDebts(tenantId: string) {
   )
   const snap = await getDocs(q)
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Sale))
+    .filter((s) => s.invoiceType !== 'PROFORMA' && s.invoiceType !== 'QUOTATION' && s.invoiceType !== 'CREDIT_NOTE')
+    .sort((a, b) => parseInt(b.createdAt || '0') - parseInt(a.createdAt || '0'))
 }
 
 export async function recordPayment(saleId: string, amount: number, userId: string, tenantId: string, method: 'CASH' | 'WAVE' | 'OM' | 'CARD' = 'CASH') {
@@ -33,7 +35,7 @@ export async function recordPayment(saleId: string, amount: number, userId: stri
     if (!snap.exists()) throw new Error('Sale not found')
 
     const sale = snap.data() as Sale
-    const amountAlreadyPaid = (sale as Sale).amountPaid || 0
+    const amountAlreadyPaid = sale.amountPaid || 0
     const newPaid = amountAlreadyPaid + amount
     const newStatus = newPaid >= sale.total ? 'PAID' : 'PARTIAL'
 
@@ -41,6 +43,7 @@ export async function recordPayment(saleId: string, amount: number, userId: stri
       amountPaid: newPaid,
       paymentStatus: newStatus,
       updatedAt: now,
+      updatedBy: userId,
     })
 
     if (amount > 0) {

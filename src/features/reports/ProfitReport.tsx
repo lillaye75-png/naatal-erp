@@ -43,7 +43,7 @@ export function ProfitReport({ startDate, endDate }: { startDate: number; endDat
         .map((d) => ({ id: d.id, ...d.data() } as any))
         .filter((s) => {
           const ts = parseInt(s.createdAt || '0')
-          return ts >= startDate && ts <= endDate && s.invoiceType !== 'PROFORMA' && s.invoiceType !== 'QUOTATION'
+          return ts >= startDate && ts <= endDate && s.invoiceType !== 'PROFORMA' && s.invoiceType !== 'QUOTATION' && s.invoiceType !== 'CREDIT_NOTE'
         })
 
       let totalRevenue = 0

@@ -40,7 +40,7 @@ export function SalesReport({ startDate, endDate }: { startDate: number; endDate
         .map((d) => ({ id: d.id, ...d.data() } as any))
         .filter((s) => {
           const ts = parseInt(s.createdAt || '0')
-          return ts >= startDate && ts <= endDate && s.invoiceType !== 'PROFORMA' && s.invoiceType !== 'QUOTATION'
+          return ts >= startDate && ts <= endDate && s.invoiceType !== 'PROFORMA' && s.invoiceType !== 'QUOTATION' && s.invoiceType !== 'CREDIT_NOTE'
         })
 
       const totalRevenue = sales.reduce((sum, s) => sum + (s.total || 0), 0)

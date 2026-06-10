@@ -36,7 +36,8 @@ export async function createSale(params: {
   skipStock?: boolean
 }) {
   const invoiceType = params.invoiceType || 'INVOICE'
-  const skipStock = params.skipStock || invoiceType === 'PROFORMA' || invoiceType === 'QUOTATION'
+  const nonInvoice = invoiceType === 'PROFORMA' || invoiceType === 'QUOTATION' || invoiceType === 'CREDIT_NOTE'
+  const skipStock = params.skipStock || nonInvoice
 
   const store = useOfflineStore.getState()
 
@@ -71,10 +72,11 @@ export async function createSale(params: {
   return runTransaction(db, async (transaction) => {
     const saleRef = doc(collection(db, 'sales'))
     const paymentStatus: 'PAID' | 'PARTIAL' | 'UNPAID' | 'PENDING' =
-      params.paymentMethod === 'WAVE' || params.paymentMethod === 'OM'
-        ? 'PENDING'
-        : params.amountPaid >= params.total ? 'PAID'
-        : params.amountPaid > 0 ? 'PARTIAL' : 'UNPAID'
+      nonInvoice ? 'UNPAID'
+        : params.paymentMethod === 'WAVE' || params.paymentMethod === 'OM'
+          ? 'PENDING'
+          : params.amountPaid >= params.total ? 'PAID'
+          : params.amountPaid > 0 ? 'PARTIAL' : 'UNPAID'
 
     const prefix = INVOICE_PREFIX[invoiceType] || 'INV'
     const counterRef = doc(db, 'counters', `invoice_${params.tenantId}_${prefix}`)
@@ -108,7 +110,7 @@ export async function createSale(params: {
       discount: params.discount,
       tax: params.tax,
       total: params.total,
-      amountPaid: params.amountPaid || 0,
+      amountPaid: nonInvoice ? 0 : (params.amountPaid || 0),
       paymentStatus,
       paymentMethod: params.paymentMethod,
       invoiceId: '',
@@ -151,7 +153,7 @@ export async function createSale(params: {
     transaction.set(invoiceRef, invoiceData)
     transaction.update(saleRef, { invoiceId: invoiceRef.id })
 
-    if (params.amountPaid > 0) {
+    if (params.amountPaid > 0 && !nonInvoice) {
       const paymentRef = doc(collection(db, 'payments'))
       transaction.set(paymentRef, {
         id: paymentRef.id,
@@ -194,7 +196,7 @@ export async function createSale(params: {
       }
     }
 
-    if (customerData) {
+    if (customerData && !nonInvoice) {
       const customerRef = doc(db, 'customers', params.customerId)
       transaction.update(customerRef, {
         totalDebt: (customerData.totalDebt || 0) + (params.total - params.amountPaid),

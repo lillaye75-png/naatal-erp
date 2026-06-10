@@ -59,8 +59,9 @@ export default function DebtPage() {
       toast.success(`Paiement de ${formatXOF(amount)} enregistré`)
       setPaymentDialog(null)
       loadDebts()
-    } catch {
-      toast.error("Erreur lors du paiement")
+    } catch (err) {
+      console.error('Payment failed:', err)
+      toast.error(`Erreur lors du paiement: ${err instanceof Error ? err.message : 'Erreur inconnue'}`)
     }
   }
 

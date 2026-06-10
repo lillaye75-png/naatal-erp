@@ -72,7 +72,9 @@ export default function InvoicesPage() {
     return base
   }, [sales, activeTab, dateFilter, startDate, endDate])
 
-  const totalSales = filteredSales.reduce((sum, s) => sum + s.total, 0)
+  const totalSales = filteredSales
+    .filter((s) => s.invoiceType !== 'PROFORMA' && s.invoiceType !== 'QUOTATION' && s.invoiceType !== 'CREDIT_NOTE')
+    .reduce((sum, s) => sum + s.total, 0)
 
   const load = useCallback(async () => {
     if (!tenantId) { setLoading(false); return }

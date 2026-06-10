@@ -10,7 +10,9 @@ import { TableSkeleton } from "@/components/shared/Skeleton"
 import { formatXOF } from "@/lib/currency"
 import { getStockLevel } from "@/services/inventory.service"
 import { cn } from "@/lib/utils"
-import type { Product } from "@/types"
+import type { Product, Category } from "@/types"
+import { collection, getDocs, query, where } from "firebase/firestore"
+import { initializeFirebase } from "@/lib/firebase"
 
 interface ProductTableProps {
   onAdd: () => void
@@ -20,10 +22,19 @@ interface ProductTableProps {
 export function ProductTable({ onAdd, onEdit }: ProductTableProps) {
   const [products, setProducts] = useState<Product[]>([])
   const [stockMap, setStockMap] = useState<Record<string, number>>({})
+  const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState("")
   const { fetchProducts, removeProduct } = useProducts()
   const tenantId = useAuthStore((s) => s.tenant?.id)
+
+  useEffect(() => {
+    if (!tenantId) return
+    initializeFirebase().then(({ db }) =>
+      getDocs(query(collection(db, 'categories'), where('tenantId', '==', tenantId)))
+        .then((snap) => setCategories(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Category))))
+    )
+  }, [tenantId])
 
   useEffect(() => {
     let cancelled = false
@@ -133,7 +144,7 @@ export function ProductTable({ onAdd, onEdit }: ProductTableProps) {
                       </div>
                     </td>
                     <td className="p-3 text-sm text-muted-foreground hidden md:table-cell">{product.sku}</td>
-                    <td className="p-3 text-sm text-muted-foreground hidden md:table-cell">{product.categoryId?.slice(0, 8) || '-'}</td>
+                    <td className="p-3 text-sm text-muted-foreground hidden md:table-cell">{categories.find((c) => c.id === product.categoryId)?.name || product.categoryId?.slice(0, 8) || '-'}</td>
                     <td className="p-3 text-sm text-right font-medium">{formatXOF(product.price)}</td>
                     <td className="p-3 text-sm text-right hidden md:table-cell">
                       <span className={cn(isLowStock && "text-destructive font-semibold")}>

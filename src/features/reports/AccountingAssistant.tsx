@@ -61,11 +61,11 @@ export function AccountingAssistant({ startDate, endDate }: { startDate: number;
         const products = prodSnap.docs.map((d) => ({ id: d.id, ...d.data() } as any))
 
         const todaySales = sales
-          .filter((s: any) => s.createdAt >= todayTs && s.invoiceType !== 'PROFORMA' && s.invoiceType !== 'QUOTATION')
+          .filter((s: any) => s.createdAt >= todayTs && s.invoiceType !== 'PROFORMA' && s.invoiceType !== 'QUOTATION' && s.invoiceType !== 'CREDIT_NOTE')
           .reduce((sum: number, s: any) => sum + (s.total || 0), 0)
 
         const todaySalesCount = sales
-          .filter((s: any) => s.createdAt >= todayTs && s.invoiceType !== 'PROFORMA' && s.invoiceType !== 'QUOTATION')
+          .filter((s: any) => s.createdAt >= todayTs && s.invoiceType !== 'PROFORMA' && s.invoiceType !== 'QUOTATION' && s.invoiceType !== 'CREDIT_NOTE')
           .length
 
         const debtors = customers
@@ -79,7 +79,7 @@ export function AccountingAssistant({ startDate, endDate }: { startDate: number;
 
         const productSales: Record<string, number> = {}
         sales
-          .filter((s: any) => s.invoiceType !== 'PROFORMA' && s.invoiceType !== 'QUOTATION')
+          .filter((s: any) => s.invoiceType !== 'PROFORMA' && s.invoiceType !== 'QUOTATION' && s.invoiceType !== 'CREDIT_NOTE')
           .forEach((s: any) => {
             (s.items || []).forEach((item: any) => {
               if (item.productId && item.productId !== '__quick_pos__') {
