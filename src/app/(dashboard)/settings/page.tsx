@@ -327,7 +327,6 @@ export default function SettingsPage() {
     { id: "invoice", label: "Facturation", icon: FileText },
     { id: "payments", label: "Paiements", icon: Smartphone },
     { id: "store", label: "Boutique en ligne", icon: Globe },
-    { id: "store", label: "Boutique en ligne", icon: Globe },
     { id: "users", label: "Utilisateurs & Rôles", icon: Users },
     { id: "backup", label: "Sauvegarde", icon: Download },
   ]
