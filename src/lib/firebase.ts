@@ -70,6 +70,8 @@ export async function initializeFirebase(): Promise<{
             localCache: persistentLocalCache({
               tabManager: persistentMultipleTabManager(),
             }),
+            experimentalAutoDetectLongPolling: true,
+            ignoreUndefinedProperties: true,
           })
         } catch {
           db = getFirestore(app)
