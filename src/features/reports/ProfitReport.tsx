@@ -43,7 +43,7 @@ export function ProfitReport({ startDate, endDate }: { startDate: number; endDat
         .map((d) => ({ id: d.id, ...d.data() } as any))
         .filter((s) => {
           const ts = parseInt(s.createdAt || '0')
-          return ts >= startDate && ts <= endDate && s.invoiceType !== 'PROFORMA' && s.invoiceType !== 'QUOTATION' && s.invoiceType !== 'CREDIT_NOTE'
+          return ts >= startDate && ts <= endDate && s.invoiceType !== 'PROFORMA' && s.invoiceType !== 'QUOTATION'
         })
 
       let totalRevenue = 0
@@ -51,22 +51,25 @@ export function ProfitReport({ startDate, endDate }: { startDate: number; endDat
       const dailyMap = new Map<string, { revenue: number; cogs: number }>()
 
       for (const s of sales) {
-        totalRevenue += s.total || 0
+        const saleTotal = s.invoiceType === 'CREDIT_NOTE' ? -(s.total || 0) : (s.total || 0)
+        totalRevenue += saleTotal
         const dateKey = s.createdAt ? new Date(parseInt(s.createdAt)).toISOString().split('T')[0] : 'unknown'
         const entry = dailyMap.get(dateKey) || { revenue: 0, cogs: 0 }
-        entry.revenue += s.total || 0
+        entry.revenue += saleTotal
 
-        const items = s.items || []
-        for (const item of items) {
-          if (item.productId === '__quick_pos__') continue
-          const prodSnap = await getDocs(query(
-            collection(db, 'products'),
-            where('__name__', '==', item.productId),
-          ))
-          if (!prodSnap.empty) {
-            const costPrice = prodSnap.docs[0].data()?.costPrice || 0
-            entry.cogs += costPrice * item.qty
-            totalCogs += costPrice * item.qty
+        if (s.invoiceType !== 'CREDIT_NOTE') {
+          const items = s.items || []
+          for (const item of items) {
+            if (item.productId === '__quick_pos__') continue
+            const prodSnap = await getDocs(query(
+              collection(db, 'products'),
+              where('__name__', '==', item.productId),
+            ))
+            if (!prodSnap.empty) {
+              const costPrice = prodSnap.docs[0].data()?.costPrice || 0
+              entry.cogs += costPrice * item.qty
+              totalCogs += costPrice * item.qty
+            }
           }
         }
         dailyMap.set(dateKey, entry)

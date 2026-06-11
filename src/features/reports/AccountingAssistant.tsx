@@ -70,12 +70,15 @@ export function AccountingAssistant({ startDate, endDate }: { startDate: number;
         const products = prodSnap.docs.map((d) => ({ id: d.id, ...d.data() } as any))
         const expenses = expSnap.docs.map((d) => ({ id: d.id, ...d.data() } as any))
 
+        const nonProforma = (s: any) => s.invoiceType !== 'PROFORMA' && s.invoiceType !== 'QUOTATION'
+        const saleValue = (s: any) => s.invoiceType === 'CREDIT_NOTE' ? -(s.total || 0) : (s.total || 0)
+
         const todaySales = sales
-          .filter((s: any) => s.createdAt >= todayTs && s.invoiceType !== 'PROFORMA' && s.invoiceType !== 'QUOTATION' && s.invoiceType !== 'CREDIT_NOTE')
-          .reduce((sum: number, s: any) => sum + (s.total || 0), 0)
+          .filter((s: any) => s.createdAt >= todayTs && nonProforma(s))
+          .reduce((sum: number, s: any) => sum + saleValue(s), 0)
 
         const todaySalesCount = sales
-          .filter((s: any) => s.createdAt >= todayTs && s.invoiceType !== 'PROFORMA' && s.invoiceType !== 'QUOTATION' && s.invoiceType !== 'CREDIT_NOTE')
+          .filter((s: any) => s.createdAt >= todayTs && nonProforma(s) && s.invoiceType !== 'CREDIT_NOTE')
           .length
 
         const debtors = customers
@@ -89,7 +92,7 @@ export function AccountingAssistant({ startDate, endDate }: { startDate: number;
 
         const productSales: Record<string, number> = {}
         sales
-          .filter((s: any) => s.invoiceType !== 'PROFORMA' && s.invoiceType !== 'QUOTATION' && s.invoiceType !== 'CREDIT_NOTE')
+          .filter((s: any) => nonProforma(s) && s.invoiceType !== 'CREDIT_NOTE')
           .forEach((s: any) => {
             (s.items || []).forEach((item: any) => {
               if (item.productId && item.productId !== '__quick_pos__') {
@@ -102,8 +105,8 @@ export function AccountingAssistant({ startDate, endDate }: { startDate: number;
           ? { name: products.find((p: any) => p.id === topProdId)?.name || topProdId, total: productSales[topProdId] }
           : null
 
-        const validSales = sales.filter((s: any) => s.invoiceType !== 'PROFORMA' && s.invoiceType !== 'QUOTATION' && s.invoiceType !== 'CREDIT_NOTE')
-        const totalRevenue = validSales.reduce((sum: number, s: any) => sum + (s.total || 0), 0)
+        const validSales = sales.filter((s: any) => nonProforma(s))
+        const totalRevenue = validSales.reduce((sum: number, s: any) => sum + saleValue(s), 0)
         const totalExpenses = expenses.reduce((sum: number, e: any) => sum + (e.amount || 0), 0)
 
         if (!cancelled) {

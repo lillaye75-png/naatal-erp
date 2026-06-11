@@ -40,12 +40,12 @@ export function SalesReport({ startDate, endDate }: { startDate: number; endDate
         .map((d) => ({ id: d.id, ...d.data() } as any))
         .filter((s) => {
           const ts = parseInt(s.createdAt || '0')
-          return ts >= startDate && ts <= endDate && s.invoiceType !== 'PROFORMA' && s.invoiceType !== 'QUOTATION' && s.invoiceType !== 'CREDIT_NOTE'
+          return ts >= startDate && ts <= endDate && s.invoiceType !== 'PROFORMA' && s.invoiceType !== 'QUOTATION'
         })
 
-      const totalRevenue = sales.reduce((sum, s) => sum + (s.total || 0), 0)
-      const totalPaid = sales.reduce((sum, s) => sum + (s.amountPaid || 0), 0)
-      const salesCount = sales.length
+      const totalRevenue = sales.reduce((sum, s) => sum + (s.invoiceType === 'CREDIT_NOTE' ? -(s.total || 0) : s.total || 0), 0)
+      const totalPaid = sales.reduce((sum, s) => sum + (s.invoiceType === 'CREDIT_NOTE' ? -(s.amountPaid || 0) : s.amountPaid || 0), 0)
+      const salesCount = sales.filter((s) => s.invoiceType !== 'CREDIT_NOTE').length
 
       let totalCogs = 0
       for (const sale of sales) {

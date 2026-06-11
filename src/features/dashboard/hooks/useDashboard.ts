@@ -98,25 +98,25 @@ export function useDashboard() {
 
   useEffect(() => {
     if (!todaySalesData) return
-    const filtered = todaySalesData.filter(
-      (s) => s.invoiceType !== 'PROFORMA' && s.invoiceType !== 'QUOTATION' && s.invoiceType !== 'CREDIT_NOTE'
+    const realSales = todaySalesData.filter(
+      (s) => s.invoiceType !== 'PROFORMA' && s.invoiceType !== 'QUOTATION'
     )
-    setTodaySales(filtered.reduce((sum, s) => sum + (s.total || 0), 0))
-    const recent = filtered.slice(0, 5).map((s) => ({
+    setTodaySales(realSales.reduce((sum, s) => sum + (s.invoiceType === 'CREDIT_NOTE' ? -(s.total || 0) : s.total || 0), 0))
+    const recent = realSales.slice(0, 5).map((s) => ({
       id: s.id,
       customerName: s.customerId
         ? customerMap.get(s.customerId) || 'Client inconnu'
         : 'Client inconnu',
-      total: s.total,
+      total: s.invoiceType === 'CREDIT_NOTE' ? -(s.total || 0) : s.total,
       paymentStatus: s.paymentStatus,
     }))
     setRecentSales(recent)
     const dayTotals: Record<string, number> = {}
-    for (const sale of filtered) {
+    for (const sale of realSales) {
       if (!sale.createdAt) continue
       const saleDate = new Date(parseInt(sale.createdAt, 10))
       const dayKey = saleDate.toDateString()
-      dayTotals[dayKey] = (dayTotals[dayKey] || 0) + (sale.total || 0)
+      dayTotals[dayKey] = (dayTotals[dayKey] || 0) + (sale.invoiceType === 'CREDIT_NOTE' ? -(sale.total || 0) : sale.total || 0)
     }
     const dayLabels = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam']
     const points: ChartDataPoint[] = []
