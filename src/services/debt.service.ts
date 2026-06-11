@@ -35,6 +35,14 @@ export async function recordPayment(saleId: string, amount: number, userId: stri
     if (!snap.exists()) throw new Error('Sale not found')
 
     const sale = snap.data() as Sale
+
+    let customerRef = null
+    let custSnap = null
+    if (sale.customerId) {
+      customerRef = doc(db, 'customers', sale.customerId)
+      custSnap = await transaction.get(customerRef)
+    }
+
     const amountAlreadyPaid = sale.amountPaid || 0
     const newPaid = amountAlreadyPaid + amount
     const newStatus = newPaid >= sale.total ? 'PAID' : 'PARTIAL'
@@ -66,14 +74,10 @@ export async function recordPayment(saleId: string, amount: number, userId: stri
       })
     }
 
-    if (sale.customerId) {
-      const customerRef = doc(db, 'customers', sale.customerId)
-      const custSnap = await transaction.get(customerRef)
-      if (custSnap.exists()) {
-        const cust = custSnap.data() as Customer
-        const currentDebt = cust.totalDebt || 0
-        transaction.update(customerRef, { totalDebt: Math.max(0, currentDebt - amount), updatedAt: now })
-      }
+    if (customerRef && custSnap?.exists()) {
+      const cust = custSnap.data() as Customer
+      const currentDebt = cust.totalDebt || 0
+      transaction.update(customerRef, { totalDebt: Math.max(0, currentDebt - amount), updatedAt: now })
     }
   })
 
