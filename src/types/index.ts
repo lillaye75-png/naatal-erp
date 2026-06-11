@@ -96,6 +96,7 @@ export interface Customer {
   creditLimit: number
   totalDebt: number
   language: string
+  branchId?: string
 }
 
 export interface CustomerGroup {
@@ -114,6 +115,15 @@ export interface Supplier {
   paymentTerms: string
 }
 
+export interface Branch {
+  id: string
+  name: string
+  location: string
+  phone: string
+  isPrimary: boolean
+  tenantId: string
+}
+
 export interface Sale extends BaseDocument {
   customerId: string
   items: SaleItem[]
@@ -128,6 +138,7 @@ export interface Sale extends BaseDocument {
   note: string
   cashRegisterId: string
   invoiceType: 'INVOICE' | 'PROFORMA' | 'QUOTATION' | 'CREDIT_NOTE'
+  branchId?: string
 }
 
 export interface SaleItem {
@@ -149,6 +160,7 @@ export interface Invoice extends BaseDocument {
   printCount: number
   whatsappSent: boolean
   invoiceType: 'INVOICE' | 'PROFORMA' | 'QUOTATION' | 'CREDIT_NOTE'
+  branchId?: string
 }
 
 export interface Payment {
@@ -169,8 +181,11 @@ export interface PurchaseOrder {
   supplierId: string
   items: PurchaseItem[]
   total: number
-  status: 'PENDING' | 'RECEIVED' | 'CANCELLED'
+  status: 'DRAFT' | 'PENDING' | 'APPROVED' | 'PARTIALLY_RECEIVED' | 'RECEIVED' | 'CANCELLED'
   expectedDate: string
+  notes: string
+  tenantId: string
+  branchId?: string
 }
 
 export interface PurchaseItem {
@@ -191,6 +206,7 @@ export interface InventoryMovement {
   note: string
   referenceId: string
   warehouseId: string
+  branchId?: string
   createdAt?: string
 }
 
@@ -219,6 +235,7 @@ export interface CashRegister {
   openingBalance: number
   closingBalance: number
   difference: number
+  branchId?: string
 }
 
 export interface CashMovement {
@@ -237,6 +254,7 @@ export interface Expense {
   description: string
   date: string
   receipt: string
+  branchId?: string
 }
 
 export interface Account {
@@ -326,4 +344,15 @@ export interface OfflineQueue {
   payload: unknown
   createdAt: string
   syncedAt: string
+}
+
+export interface SessionLog {
+  id: string
+  userId: string
+  tenantId: string
+  action: 'LOGIN' | 'LOGOUT'
+  browser: string
+  device: string
+  ip: string
+  createdAt: string
 }

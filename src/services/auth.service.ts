@@ -8,6 +8,7 @@ import {
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
 import { initializeFirebase } from '@/lib/firebase'
 import { ROLES } from '@/constants/roles'
+import { logSession } from './session.service'
 
 async function getFirebase() {
   return initializeFirebase()
@@ -70,6 +71,7 @@ export async function login(email: string, password: string) {
       console.error('Failed to load user tenantId on login:', err)
     }
   }
+  logSession(fbUser.id, fbUser.tenantId, 'LOGIN')
   return fbUser
 }
 
@@ -86,6 +88,7 @@ export async function register(
   const tenantId = userId
 
   await setCustomClaims(userId, { tenantId, role: 'OWNER' })
+  logSession(userId, tenantId, 'LOGIN')
 
   const tenantRef = doc(db, 'tenants', userId)
   await setDoc(tenantRef, {
@@ -120,6 +123,14 @@ export async function resetPassword(email: string) {
 
 export async function logout() {
   const { auth } = await getFirebase()
+  const user = auth.currentUser
+  if (user) {
+    try {
+      const tokenResult = await user.getIdTokenResult()
+      const tenantId = tokenResult.claims?.tenantId as string || ''
+      logSession(user.uid, tenantId, 'LOGOUT')
+    } catch {}
+  }
   await signOut(auth)
 }
 

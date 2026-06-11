@@ -26,6 +26,7 @@ import {
   Ruler,
   UserCog,
   ListOrdered,
+  Building2,
 } from "lucide-react"
 
 interface NavItem {
@@ -58,6 +59,7 @@ const navItems: NavItem[] = [
   { label: "", href: "", icon: LayoutDashboard, divider: true },
   { label: "nav.expenses", href: ROUTES.EXPENSES, icon: Receipt },
   { label: "nav.warehouses", href: ROUTES.WAREHOUSES, icon: Warehouse },
+  { label: "nav.branches", href: ROUTES.BRANCHES, icon: Building2 },
   { label: "nav.units", href: ROUTES.UNITS, icon: Ruler },
   { label: "nav.customerGroups", href: ROUTES.CUSTOMER_GROUPS, icon: UserCog },
   { label: "nav.settings", href: ROUTES.SETTINGS, icon: Settings },

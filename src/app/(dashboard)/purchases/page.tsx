@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { PackageSearch, Plus, PackageCheck } from "lucide-react"
 import { TableSkeleton } from "@/components/shared/Skeleton"
 import { useAuthStore } from "@/stores/auth.store"
-import { getPurchaseOrders, createPurchaseOrder, receivePurchaseOrder } from "@/services/purchase.service"
+import { getPurchaseOrders, createPurchaseOrder, receivePurchaseOrder, approvePurchaseOrder, cancelPurchaseOrder } from "@/services/purchase.service"
 import { getProducts } from "@/repositories/product.repository"
 import { getSuppliers } from "@/services/contact.service"
 import { formatXOF } from "@/lib/currency"
@@ -41,6 +41,24 @@ export default function PurchasesPage() {
     expectedDate: "",
     items: [{ productId: "", qty: 1, unitCost: 0 }],
   })
+
+  const statusLabel: Record<string, string> = {
+    DRAFT: 'Brouillon',
+    PENDING: 'En attente',
+    APPROVED: 'Approuvée',
+    PARTIALLY_RECEIVED: 'Reçue partiellement',
+    RECEIVED: 'Reçue',
+    CANCELLED: 'Annulée',
+  }
+
+  const statusColor: Record<string, string> = {
+    DRAFT: 'bg-muted text-muted-foreground',
+    PENDING: 'bg-warning/10 text-warning',
+    APPROVED: 'bg-info/10 text-info',
+    PARTIALLY_RECEIVED: 'bg-blue-100 text-blue-700',
+    RECEIVED: 'bg-success/10 text-success',
+    CANCELLED: 'bg-destructive/10 text-destructive',
+  }
 
   const load = useCallback(async () => {
     if (!tenantId) { setLoading(false); return }
@@ -147,11 +165,27 @@ export default function PurchasesPage() {
                 </td>
                 <td className="p-3 text-sm text-right font-medium">{formatXOF(o.total)}</td>
                 <td className="p-3 text-center">
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${
-                    o.status === 'RECEIVED' ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'
-                  }`}>{o.status === 'RECEIVED' ? 'Reçue' : 'En attente'}</span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${statusColor[o.status] || ''}`}>
+                    {statusLabel[o.status] || o.status}
+                  </span>
                 </td>
                 <td className="p-3 text-right">
+                  {o.status === 'DRAFT' && (
+                    <div className="flex gap-1 justify-end">
+                      <Button size="sm" variant="outline" onClick={() => approvePurchaseOrder(o.id, userId || '')}>
+                        Approuver
+                      </Button>
+                      <Button size="sm" variant="outline" className="text-destructive" onClick={() => cancelPurchaseOrder(o.id, userId || '')}>
+                        Annuler
+                      </Button>
+                    </div>
+                  )}
+                  {o.status === 'APPROVED' && (
+                    <Button size="sm" variant="outline" onClick={() => handleReceive(o.id)}>
+                      <PackageCheck className="w-3 h-3 mr-1" />
+                      Réceptionner
+                    </Button>
+                  )}
                   {o.status === 'PENDING' && (
                     <Button size="sm" variant="outline" onClick={() => handleReceive(o.id)}>
                       <PackageCheck className="w-3 h-3 mr-1" />

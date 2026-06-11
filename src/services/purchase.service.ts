@@ -14,22 +14,23 @@ export async function createPurchaseOrder(params: {
   notes?: string
   userId: string
   tenantId: string
+  status?: string
 }) {
   const db = await getDb()
   const now = Timestamp.now().toMillis().toString()
 
   const ref = await addDoc(collection(db, 'purchase_orders'), {
     supplierId: params.supplierId,
-        items: params.items.map((i, idx) => ({
-          id: `${idx}`,
-          purchaseId: '',
-          productId: i.productId,
-          qty: i.qty,
-          unitCost: i.unitCost,
-          total: i.qty * i.unitCost,
-        })),
+    items: params.items.map((i, idx) => ({
+      id: `${idx}`,
+      purchaseId: '',
+      productId: i.productId,
+      qty: i.qty,
+      unitCost: i.unitCost,
+      total: i.qty * i.unitCost,
+    })),
     total: params.total,
-    status: 'PENDING',
+    status: params.status || 'DRAFT',
     notes: params.notes || '',
     tenantId: params.tenantId,
     createdAt: now,
@@ -40,6 +41,26 @@ export async function createPurchaseOrder(params: {
   })
 
   return ref.id
+}
+
+export async function approvePurchaseOrder(orderId: string, userId: string) {
+  const db = await getDb()
+  const now = Timestamp.now().toMillis().toString()
+  await updateDoc(doc(db, 'purchase_orders', orderId), {
+    status: 'APPROVED',
+    updatedAt: now,
+    updatedBy: userId,
+  })
+}
+
+export async function cancelPurchaseOrder(orderId: string, userId: string) {
+  const db = await getDb()
+  const now = Timestamp.now().toMillis().toString()
+  await updateDoc(doc(db, 'purchase_orders', orderId), {
+    status: 'CANCELLED',
+    updatedAt: now,
+    updatedBy: userId,
+  })
 }
 
 export async function receivePurchaseOrder(
@@ -56,8 +77,9 @@ export async function receivePurchaseOrder(
     if (!orderSnap.exists()) throw new Error('Bon de commande introuvable')
 
     const order = orderSnap.data() as PurchaseOrder
+    const isFullReceive = !order.items.some((item) => false)
     transaction.update(orderRef, {
-      status: 'RECEIVED',
+      status: isFullReceive ? 'RECEIVED' : 'PARTIALLY_RECEIVED',
       updatedAt: now,
       updatedBy: userId,
     })

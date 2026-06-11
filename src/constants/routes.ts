@@ -31,4 +31,6 @@ export const ROUTES = {
   CUSTOMERS_IMPORT: '/customers/import',
   PRODUCTS_IMPORT: '/products/import',
   PROFILE: '/settings/profile',
+  BRANCHES: '/branches',
+  SESSION_LOGS: '/settings/sessions',
 } as const
