@@ -10,6 +10,7 @@ async function getDb() {
 
 export async function createNotification(
   userId: string,
+  tenantId: string,
   type: string,
   title: string,
   body: string,
@@ -18,6 +19,7 @@ export async function createNotification(
   const db = await getDb()
   const ref = await addDoc(collection(db, 'notifications'), {
     userId,
+    tenantId,
     type,
     title,
     body,
@@ -62,11 +64,13 @@ export function buildNotificationsQuery(db: any, userId: string) {
 
 export function createLowStockNotification(
   userId: string,
+  tenantId: string,
   productName: string,
   stock: number,
 ) {
   return createNotification(
     userId,
+    tenantId,
     'LOW_STOCK',
     'Stock faible',
     `${productName} — ${stock} unité(s) restante(s)`,
@@ -76,11 +80,13 @@ export function createLowStockNotification(
 
 export function createPaymentNotification(
   userId: string,
+  tenantId: string,
   amount: number,
   customerName: string,
 ) {
   return createNotification(
     userId,
+    tenantId,
     'PAYMENT',
     'Paiement reçu',
     `${customerName} — ${formatXOF(amount)}`,
@@ -90,11 +96,13 @@ export function createPaymentNotification(
 
 export function createDebtNotification(
   userId: string,
+  tenantId: string,
   customerName: string,
   amount: number,
 ) {
   return createNotification(
     userId,
+    tenantId,
     'DEBT',
     'Dette enregistrée',
     `${customerName} — ${formatXOF(amount)}`,

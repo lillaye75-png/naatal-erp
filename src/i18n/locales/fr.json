@@ -22,7 +22,8 @@
     "customerGroups": "Groupes clients",
     "importProducts": "Importer produits",
     "importCustomers": "Importer clients",
-    "settings": "Paramètres"
+    "settings": "Paramètres",
+    "recurring": "Récurrentes"
   },
   "common": {
     "save": "Enregistrer",

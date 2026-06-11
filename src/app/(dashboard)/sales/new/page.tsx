@@ -252,6 +252,7 @@ export default function NewSalePage() {
         tenantId,
         userId,
         invoiceType,
+        customerName: selectedCustomer?.name,
       })
       const { db } = await initializeFirebase()
       const [saleSnap, invoiceSnap] = await Promise.all([

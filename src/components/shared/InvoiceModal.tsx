@@ -6,11 +6,14 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
+  DialogDescription,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { Printer, Share2, Download, MessageSquare, Mail, X, FileText } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import { Printer, Share2, Download, MessageSquare, Mail, X, FileText, Loader2 } from "lucide-react"
 import { InvoicePreview, InvoiceDisplayData } from "./InvoicePreview"
-import { downloadInvoicePdf } from "@/lib/pdf"
+import { downloadInvoicePdf, generateInvoiceHtml } from "@/lib/pdf"
 import type { Sale, Invoice, Customer } from "@/types"
 import { buildWhatsAppInvoiceURL } from "@/lib/whatsapp"
 import { buildInvoiceSms } from "@/lib/sms"
@@ -44,6 +47,9 @@ export function InvoiceModal({
 }: InvoiceModalProps) {
   const [sending, setSending] = useState(false)
   const [printFormat, setPrintFormat] = useState<'80mm' | 'A4'>('80mm')
+  const [emailDialogOpen, setEmailDialogOpen] = useState(false)
+  const [emailAddress, setEmailAddress] = useState("")
+  const [emailSending, setEmailSending] = useState(false)
   const previewRef = useRef<HTMLDivElement>(null)
 
   if (!sale || !invoice) return null
@@ -180,16 +186,41 @@ export function InvoiceModal({
   }
 
   const handleEmail = () => {
-    if (!customer?.email) {
-      toast.error("Aucune adresse email client")
+    setEmailAddress(customer?.email || "")
+    setEmailDialogOpen(true)
+  }
+
+  const handleSendEmail = async () => {
+    if (!emailAddress) {
+      toast.error("Veuillez saisir une adresse email")
       return
     }
-    const subject = encodeURIComponent(`Facture ${invoice.number} - ${storeName}`)
-    const body = encodeURIComponent(
-      `Bonjour ${customer.name || 'Client'},\n\nVoici votre facture ${invoice.number} du ${new Date().toLocaleDateString('fr-FR')}.\n\nMontant total: ${formatXOF(invoice.total)}\nPayé: ${formatXOF(paid)}\nReste: ${formatXOF(balance)}\n\n${storeName}\nMerci de votre visite !`
-    )
-    window.open(`mailto:${customer.email}?subject=${subject}&body=${body}`, '_blank')
-    toast.success("Email ouvert")
+    setEmailSending(true)
+    try {
+      const html = generateInvoiceHtml({
+        ...pdfData,
+        footerText: invoiceFooter,
+      })
+      const res = await fetch("/api/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: emailAddress,
+          subject: `${typeLabel} ${invoice.number} - ${storeName}`,
+          html,
+        }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || "Erreur d'envoi")
+      }
+      toast.success(`${typeLabel} envoyée par email`)
+      setEmailDialogOpen(false)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erreur d'envoi")
+    } finally {
+      setEmailSending(false)
+    }
   }
 
   return (
@@ -248,12 +279,45 @@ export function InvoiceModal({
                 <MessageSquare className="w-4 h-4" /> SMS
               </Button>
             )}
-            {!isProforma && customer?.email && (
+            {!isProforma && (
               <Button variant="outline" size="sm" onClick={handleEmail}>
                 <Mail className="w-4 h-4" /> Email
               </Button>
             )}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={emailDialogOpen} onOpenChange={setEmailDialogOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Envoyer par email</DialogTitle>
+            <DialogDescription>
+              {typeLabel} {invoice.number}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <label className="text-sm font-medium">Adresse email</label>
+            <Input
+              type="email"
+              placeholder="client@example.com"
+              value={emailAddress}
+              onChange={(e) => setEmailAddress(e.target.value)}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setEmailDialogOpen(false)}
+              disabled={emailSending}
+            >
+              Annuler
+            </Button>
+            <Button onClick={handleSendEmail} disabled={emailSending}>
+              {emailSending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
+              Envoyer
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>

@@ -27,6 +27,8 @@ import {
   UserCog,
   ListOrdered,
   Building2,
+  Repeat,
+  ShieldCheck,
 } from "lucide-react"
 
 interface NavItem {
@@ -60,9 +62,11 @@ const navItems: NavItem[] = [
   { label: "nav.expenses", href: ROUTES.EXPENSES, icon: Receipt },
   { label: "nav.warehouses", href: ROUTES.WAREHOUSES, icon: Warehouse },
   { label: "nav.branches", href: ROUTES.BRANCHES, icon: Building2 },
+  { label: "nav.recurring", href: ROUTES.RECURRING, icon: Repeat },
   { label: "nav.units", href: ROUTES.UNITS, icon: Ruler },
   { label: "nav.customerGroups", href: ROUTES.CUSTOMER_GROUPS, icon: UserCog },
   { label: "nav.settings", href: ROUTES.SETTINGS, icon: Settings },
+  { label: "nav.roles", href: ROUTES.SETTINGS_ROLES, icon: ShieldCheck },
 ]
 
 interface SidebarProps {

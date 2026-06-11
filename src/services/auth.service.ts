@@ -9,6 +9,7 @@ import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
 import { initializeFirebase } from '@/lib/firebase'
 import { ROLES } from '@/constants/roles'
 import { logSession } from './session.service'
+import { createNotification } from './notification.service'
 
 async function getFirebase() {
   return initializeFirebase()
@@ -72,6 +73,7 @@ export async function login(email: string, password: string) {
     }
   }
   logSession(fbUser.id, fbUser.tenantId, 'LOGIN')
+  createNotification(fbUser.id, fbUser.tenantId, 'INFO', 'Connexion', 'Vous êtes connecté', '/dashboard').catch(console.error)
   return fbUser
 }
 

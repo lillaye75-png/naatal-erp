@@ -1,6 +1,7 @@
-import { collection, getDocs, query, where, orderBy, Timestamp, doc, runTransaction } from 'firebase/firestore'
+import { collection, getDocs, query, where, orderBy, Timestamp, doc, runTransaction, getDoc } from 'firebase/firestore'
 import { initializeFirebase } from '@/lib/firebase'
 import { createAuditLog } from './audit.service'
+import { createDebtNotification } from './notification.service'
 import type { Sale, Customer } from '@/types'
 import { formatXOF } from '@/lib/currency'
 
@@ -90,4 +91,17 @@ export async function recordPayment(saleId: string, amount: number, userId: stri
     resourceId: saleId,
     details: `Paiement de dette de ${formatXOF(amount)} pour la vente ${saleId}`,
   })
+
+  const saleSnap = await getDoc(doc(db, 'sales', saleId))
+  if (saleSnap.exists()) {
+    const saleData = saleSnap.data() as Sale
+    let customerName = 'Client'
+    if (saleData.customerId) {
+      const custSnap = await getDoc(doc(db, 'customers', saleData.customerId))
+      if (custSnap.exists()) {
+        customerName = (custSnap.data() as Customer).name
+      }
+    }
+    createDebtNotification(userId, tenantId, customerName, amount).catch(console.error)
+  }
 }

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { collection, query, where, getDocs, addDoc, updateDoc, deleteDoc, doc, Timestamp } from "firebase/firestore"
 import { initializeFirebase } from "@/lib/firebase"
 import { useAuthStore } from "@/stores/auth.store"
@@ -15,6 +15,8 @@ import { Plus, Edit, Trash2, Receipt, TrendingDown } from "lucide-react"
 import { formatXOF } from "@/lib/currency"
 import { toast } from "sonner"
 import type { Expense } from "@/types"
+import { ColumnVisibilityDropdown } from "@/components/shared/ColumnVisibilityDropdown"
+import { useColumnManager, type ColumnDef } from "@/hooks/useColumnManager"
 
 const CATEGORIES = [
   'Loyer', 'Électricité', 'Eau', 'Salaire', 'Transport',
@@ -32,6 +34,29 @@ export default function ExpensesPage() {
   const [open, setOpen] = useState(false)
   const [editItem, setEditItem] = useState<(Expense & { id: string }) | null>(null)
   const [form, setForm] = useState({ category: CATEGORIES[0], amount: 0, description: '', date: new Date().toISOString().split('T')[0] })
+
+  const columns: ColumnDef[] = useMemo(() => [
+    { id: 'category', label: 'Catégorie' },
+    { id: 'description', label: 'Description' },
+    { id: 'amount', label: 'Montant' },
+    { id: 'date', label: 'Date' },
+    { id: 'actions', label: 'Actions' },
+  ], [])
+
+  const { visible, filters, toggleColumn, setFilter, resetVisibility } = useColumnManager(columns)
+
+  const filtered = expenses.filter((e) => {
+    const colMatch = Object.entries(filters).every(([key, val]) => {
+      if (!val) return true
+      const v = val.toLowerCase()
+      if (key === 'category') return (e.category || '').toLowerCase().includes(v)
+      if (key === 'description') return (e.description || '').toLowerCase().includes(v)
+      if (key === 'amount') return String(e.amount).includes(v)
+      if (key === 'date') return (e.date || '').includes(v)
+      return true
+    })
+    return colMatch
+  })
 
   const fetch = useCallback(async () => {
     if (!tenantId) { setLoading(false); return }
@@ -94,6 +119,12 @@ export default function ExpensesPage() {
         <Button onClick={() => { setEditItem(null); setForm({ category: CATEGORIES[0], amount: 0, description: '', date: new Date().toISOString().split('T')[0] }); setOpen(true) }}>
           <Plus className="w-4 h-4 mr-1" /> Nouvelle dépense
         </Button>
+        <ColumnVisibilityDropdown
+          columns={columns}
+          visible={visible}
+          onToggle={toggleColumn}
+          onReset={resetVisibility}
+        />
       </div>
 
       <Card>
@@ -113,21 +144,28 @@ export default function ExpensesPage() {
         <table className="w-full">
           <thead>
             <tr className="bg-muted/50">
-              <th className="text-left p-3 text-xs font-medium text-muted-foreground">Catégorie</th>
-              <th className="text-left p-3 text-xs font-medium text-muted-foreground hidden md:table-cell">Description</th>
-              <th className="text-right p-3 text-xs font-medium text-muted-foreground">Montant</th>
-              <th className="text-left p-3 text-xs font-medium text-muted-foreground hidden md:table-cell">Date</th>
-              <th className="text-right p-3 text-xs font-medium text-muted-foreground w-24">Actions</th>
+              {visible.has('category') && <th className="text-left p-3 text-xs font-medium text-muted-foreground">Catégorie</th>}
+              {visible.has('description') && <th className="text-left p-3 text-xs font-medium text-muted-foreground hidden md:table-cell">Description</th>}
+              {visible.has('amount') && <th className="text-right p-3 text-xs font-medium text-muted-foreground">Montant</th>}
+              {visible.has('date') && <th className="text-left p-3 text-xs font-medium text-muted-foreground hidden md:table-cell">Date</th>}
+              {visible.has('actions') && <th className="text-right p-3 text-xs font-medium text-muted-foreground w-24">Actions</th>}
+            </tr>
+            <tr className="bg-muted/30">
+              {visible.has('category') && <th className="p-1"><Input placeholder="Filtrer..." className="h-7 text-xs" value={filters.category || ''} onChange={(e) => setFilter('category', e.target.value)} /></th>}
+              {visible.has('description') && <th className="p-1 hidden md:table-cell"><Input placeholder="Filtrer..." className="h-7 text-xs" value={filters.description || ''} onChange={(e) => setFilter('description', e.target.value)} /></th>}
+              {visible.has('amount') && <th className="p-1"><Input placeholder="Min" className="h-7 text-xs" value={filters.amount || ''} onChange={(e) => setFilter('amount', e.target.value)} /></th>}
+              {visible.has('date') && <th className="p-1"><Input placeholder="JJ/MM" className="h-7 text-xs" value={filters.date || ''} onChange={(e) => setFilter('date', e.target.value)} /></th>}
+              {visible.has('actions') && <th className="p-1"></th>}
             </tr>
           </thead>
           <tbody>
-            {expenses.map((e) => (
+            {filtered.map((e) => (
               <tr key={e.id} className="border-t hover:bg-muted/30">
-                <td className="p-3 text-sm font-medium">{e.category}</td>
-                <td className="p-3 text-sm text-muted-foreground hidden md:table-cell truncate max-w-[200px]">{e.description}</td>
-                <td className="p-3 text-sm text-right font-medium text-destructive">{formatXOF(e.amount)}</td>
-                <td className="p-3 text-sm text-muted-foreground hidden md:table-cell">{e.date ? new Date(e.date).toLocaleDateString('fr-FR') : '-'}</td>
-                <td className="p-3 text-right">
+                {visible.has('category') && <td className="p-3 text-sm font-medium">{e.category}</td>}
+                {visible.has('description') && <td className="p-3 text-sm text-muted-foreground hidden md:table-cell truncate max-w-[200px]">{e.description}</td>}
+                {visible.has('amount') && <td className="p-3 text-sm text-right font-medium text-destructive">{formatXOF(e.amount)}</td>}
+                {visible.has('date') && <td className="p-3 text-sm text-muted-foreground hidden md:table-cell">{e.date ? new Date(e.date).toLocaleDateString('fr-FR') : '-'}</td>}
+                {visible.has('actions') && <td className="p-3 text-right">
                   <div className="flex gap-1 justify-end">
                     <Button variant="ghost" size="icon" className="w-7 h-7" onClick={() => { setEditItem(e); setForm({ category: e.category, amount: e.amount, description: e.description, date: e.date }); setOpen(true) }}>
                       <Edit className="w-3 h-3" />
@@ -136,11 +174,11 @@ export default function ExpensesPage() {
                       <Trash2 className="w-3 h-3" />
                     </Button>
                   </div>
-                </td>
+                </td>}
               </tr>
             ))}
-            {expenses.length === 0 && (
-              <tr><td colSpan={5} className="p-12 text-center text-muted-foreground"><Receipt className="w-12 h-12 mx-auto mb-3 opacity-40" /><p>Aucune dépense</p></td></tr>
+            {filtered.length === 0 && (
+              <tr><td colSpan={5} className="p-12 text-center text-muted-foreground"><Receipt className="w-12 h-12 mx-auto mb-3 opacity-40" /><p>{expenses.length === 0 ? 'Aucune dépense' : 'Aucun résultat'}</p></td></tr>
             )}
           </tbody>
         </table>

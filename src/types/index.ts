@@ -311,14 +311,23 @@ export interface OrderItem {
 
 export interface AuditLog {
   id: string
+  tenantId: string
   userId: string
+  userName: string
   action: string
+  resource: string
   entity: string
   entityId: string
+  resourceId: string
   before: unknown
   after: unknown
+  details: string
   device: string
   ip: string
+  createdAt: string
+  updatedAt: string
+  isDeleted: boolean
+  status: string
 }
 
 export interface Notification {
@@ -355,4 +364,29 @@ export interface SessionLog {
   device: string
   ip: string
   createdAt: string
+}
+
+export interface RecurringTransaction {
+  id: string
+  tenantId: string
+  type: 'INVOICE' | 'EXPENSE'
+  title: string
+  description: string
+  amount: number
+  frequency: 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY'
+  dayOfMonth?: number
+  dayOfWeek?: number
+  month?: number
+  startDate: string
+  endDate?: string
+  categoryId?: string
+  customerId?: string
+  isActive: boolean
+  lastGenerated?: string
+  createdAt: string
+  updatedAt: string
+  createdBy: string
+  updatedBy: string
+  isDeleted: boolean
+  status: string
 }

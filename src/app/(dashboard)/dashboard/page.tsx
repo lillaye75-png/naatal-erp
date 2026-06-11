@@ -8,6 +8,7 @@ import { SalesChart } from "@/features/dashboard/SalesChart"
 import { AlertsPanel } from "@/features/dashboard/AlertsPanel"
 import { RecentSales } from "@/features/dashboard/RecentSales"
 import { OnboardingWizard } from "@/features/onboarding/OnboardingWizard"
+import { ActivityFeed } from "@/features/dashboard/ActivityFeed"
 import { useDashboard } from "@/features/dashboard/hooks/useDashboard"
 import { useAuthStore } from "@/stores/auth.store"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -111,7 +112,10 @@ export default function DashboardPage() {
         </div>
         <AlertsPanel alerts={alerts} />
       </div>
-      <RecentSales sales={recentSales} />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <RecentSales sales={recentSales} />
+        <ActivityFeed />
+      </div>
     </div>
   )
 }

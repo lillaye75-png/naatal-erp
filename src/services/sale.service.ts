@@ -8,6 +8,7 @@ import { fetchStockLevel } from '@/repositories/inventory.repository'
 import type { Sale, Invoice, Customer } from '@/types'
 import { formatXOF } from '@/lib/currency'
 import { toast } from 'sonner'
+import { createPaymentNotification } from './notification.service'
 
 async function getDb() {
   const { db } = await initializeFirebase()
@@ -34,6 +35,7 @@ export async function createSale(params: {
   note?: string
   invoiceType?: 'INVOICE' | 'PROFORMA' | 'QUOTATION' | 'CREDIT_NOTE'
   skipStock?: boolean
+  customerName?: string
 }) {
   const invoiceType = params.invoiceType || 'INVOICE'
   const nonInvoice = invoiceType === 'PROFORMA' || invoiceType === 'QUOTATION' || invoiceType === 'CREDIT_NOTE'
@@ -69,7 +71,7 @@ export async function createSale(params: {
     }
   }
 
-  return runTransaction(db, async (transaction) => {
+  const saleResult = await runTransaction(db, async (transaction) => {
     const saleRef = doc(collection(db, 'sales'))
     const paymentStatus: 'PAID' | 'PARTIAL' | 'UNPAID' | 'PENDING' =
       nonInvoice ? 'UNPAID'
@@ -218,6 +220,12 @@ export async function createSale(params: {
 
     return result
   })
+
+  if (params.amountPaid > 0 && !nonInvoice) {
+    createPaymentNotification(params.userId, params.tenantId, params.amountPaid, params.customerName || 'Client').catch(console.error)
+  }
+
+  return saleResult
 }
 
 export async function getSales(tenantId: string, lastDoc?: any, pageSize = 25) {

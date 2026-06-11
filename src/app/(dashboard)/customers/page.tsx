@@ -9,6 +9,9 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Plus, Search, Users, Pencil, Trash2, Download } from "lucide-react"
 import { TableSkeleton } from "@/components/shared/Skeleton"
+import { EmptyState } from "@/components/shared/EmptyState"
+import { ColumnVisibilityDropdown } from "@/components/shared/ColumnVisibilityDropdown"
+import { useColumnManager, type ColumnDef } from "@/hooks/useColumnManager"
 import { formatXOF } from "@/lib/currency"
 import {
   Dialog,
@@ -42,8 +45,18 @@ export default function CustomersPage() {
   const [search, setSearch] = useState("")
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
   const tenantId = useAuthStore((s) => s.tenant?.id)
   const userId = useAuthStore((s) => s.user?.id)
+
+  const columns: ColumnDef[] = useMemo(() => [
+    { id: 'name', label: 'Nom' },
+    { id: 'phone', label: 'Téléphone' },
+    { id: 'debt', label: 'Dette' },
+    { id: 'actions', label: 'Actions' },
+  ], [])
+
+  const { visible, filters, toggleColumn, setFilter, resetVisibility } = useColumnManager(columns)
 
   const [db, setDb] = useState<Firestore | null>(null)
   useEffect(() => {
@@ -120,11 +133,18 @@ export default function CustomersPage() {
     }
   }
 
-  const filtered = customers.filter(
-    (c) =>
-      c.name.toLowerCase().includes(search.toLowerCase()) ||
-      c.phone.includes(search),
-  )
+  const filtered = customers.filter((c) => {
+    const searchMatch = !search || c.name.toLowerCase().includes(search.toLowerCase()) || c.phone.includes(search)
+    const colMatch = Object.entries(filters).every(([key, val]) => {
+      if (!val) return true
+      const v = val.toLowerCase()
+      if (key === 'name') return c.name.toLowerCase().includes(v)
+      if (key === 'phone') return c.phone.toLowerCase().includes(v)
+      if (key === 'debt') return String(c.totalDebt || 0).includes(v)
+      return true
+    })
+    return searchMatch && colMatch
+  })
 
   async function handleExport() {
     const XLSX = await import('xlsx')
@@ -143,6 +163,111 @@ export default function CustomersPage() {
   }
 
   if (loading) return <TableSkeleton />
+
+  const renderContent = (() => {
+    if (filtered.length === 0) {
+      if (customers.length === 0) {
+        return <EmptyState icon={Users} title="Aucun client" description="Ajoutez votre premier client pour commencer à vendre" actionLabel="Ajouter un client" onAction={openAddDialog} />
+      }
+      return (
+        <div className="text-center py-12 text-muted-foreground">
+          <Search className="w-12 h-12 mx-auto mb-3 opacity-40" />
+          <p>Aucun résultat pour "{search}"</p>
+        </div>
+      )
+    }
+    return (
+      <div className="space-y-3">
+        {selected.size > 0 && (
+          <div className="flex items-center gap-2 px-3 py-2 bg-muted/50 rounded-lg text-sm">
+            <span className="text-muted-foreground">{selected.size} sélectionné(s)</span>
+            <Button variant="outline" size="sm" onClick={handleExport}>
+              <Download className="w-3 h-3 mr-1" /> Exporter
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => {
+              if (!window.confirm(`Supprimer ${selected.size} client(s) ?`)) return
+              selected.forEach((id) => {
+                const c = customers.find((x) => x.id === id)
+                if (c) handleDelete(c)
+              })
+              setSelected(new Set())
+            }}>
+              <Trash2 className="w-3 h-3 mr-1 text-destructive" /> Supprimer
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
+              Annuler
+            </Button>
+          </div>
+        )}
+        <div className="rounded-lg border overflow-hidden">
+          <table className="w-full">
+            <thead>
+              <tr className="bg-muted/50">
+                <th className="w-10 p-3">
+                  <input
+                    type="checkbox"
+                    className="rounded"
+                    checked={selected.size === filtered.length && filtered.length > 0}
+                    onChange={(e) => {
+                      if (e.target.checked) setSelected(new Set(filtered.map((c) => c.id)))
+                      else setSelected(new Set())
+                    }}
+                  />
+                </th>
+                {visible.has('name') && <th className="text-left p-3 text-xs font-medium text-muted-foreground">Nom</th>}
+                {visible.has('phone') && <th className="text-left p-3 text-xs font-medium text-muted-foreground hidden md:table-cell">
+                  Téléphone
+                </th>}
+                {visible.has('debt') && <th className="text-right p-3 text-xs font-medium text-muted-foreground hidden md:table-cell">
+                  Dette
+                </th>}
+                {visible.has('actions') && <th className="text-right p-3 text-xs font-medium text-muted-foreground">Actions</th>}
+              </tr>
+              <tr className="bg-muted/30">
+                <th className="w-10 p-0"></th>
+                {visible.has('name') && <th className="p-1"><Input placeholder="Filtrer..." className="h-7 text-xs" value={filters.name || ''} onChange={(e) => setFilter('name', e.target.value)} /></th>}
+                {visible.has('phone') && <th className="p-1 hidden md:table-cell"><Input placeholder="Filtrer..." className="h-7 text-xs" value={filters.phone || ''} onChange={(e) => setFilter('phone', e.target.value)} /></th>}
+                {visible.has('debt') && <th className="p-1 hidden md:table-cell"><Input placeholder="Min" className="h-7 text-xs" value={filters.debt || ''} onChange={(e) => setFilter('debt', e.target.value)} /></th>}
+                {visible.has('actions') && <th className="p-1"></th>}
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((c) => (
+                <tr key={c.id} className="border-t hover:bg-muted/30">
+                  <td className="p-3">
+                    <input
+                      type="checkbox"
+                      className="rounded"
+                      checked={selected.has(c.id)}
+                      onChange={() => {
+                        const next = new Set(selected)
+                        if (next.has(c.id)) next.delete(c.id)
+                        else next.add(c.id)
+                        setSelected(next)
+                      }}
+                    />
+                  </td>
+                  {visible.has('name') && <td className="p-3 text-sm font-medium">{c.name}</td>}
+                  {visible.has('phone') && <td className="p-3 text-sm text-muted-foreground hidden md:table-cell">{c.phone}</td>}
+                  {visible.has('debt') && <td className="p-3 text-sm text-right hidden md:table-cell">
+                    {formatXOF(Number(c.totalDebt) || 0)}
+                  </td>}
+                  {visible.has('actions') && <td className="p-3 text-right space-x-1">
+                    <Button variant="ghost" size="sm" onClick={() => openEditDialog(c)}>
+                      <Pencil className="w-4 h-4" />
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => handleDelete(c)}>
+                      <Trash2 className="w-4 h-4 text-destructive" />
+                    </Button>
+                  </td>}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )
+  })()
 
   return (
     <div className="space-y-6">
@@ -164,53 +289,18 @@ export default function CustomersPage() {
           <Download className="w-4 h-4 mr-1" />
           Exporter
         </Button>
+        <ColumnVisibilityDropdown
+          columns={columns}
+          visible={visible}
+          onToggle={toggleColumn}
+          onReset={resetVisibility}
+        />
         <Button onClick={openAddDialog}>
           <Plus className="w-4 h-4 mr-1" />
           Ajouter
         </Button>
       </div>
-      {filtered.length === 0 ? (
-        <div className="text-center py-12 text-muted-foreground">
-          <Users className="w-12 h-12 mx-auto mb-3 opacity-40" />
-          <p>Aucun client trouvé</p>
-        </div>
-      ) : (
-        <div className="rounded-lg border overflow-hidden">
-          <table className="w-full">
-            <thead>
-              <tr className="bg-muted/50">
-                <th className="text-left p-3 text-xs font-medium text-muted-foreground">Nom</th>
-                <th className="text-left p-3 text-xs font-medium text-muted-foreground hidden md:table-cell">
-                  Téléphone
-                </th>
-                <th className="text-right p-3 text-xs font-medium text-muted-foreground hidden md:table-cell">
-                  Dette
-                </th>
-                <th className="text-right p-3 text-xs font-medium text-muted-foreground">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((c) => (
-                <tr key={c.id} className="border-t hover:bg-muted/30">
-                  <td className="p-3 text-sm font-medium">{c.name}</td>
-                  <td className="p-3 text-sm text-muted-foreground hidden md:table-cell">{c.phone}</td>
-                  <td className="p-3 text-sm text-right hidden md:table-cell">
-                    {formatXOF(Number(c.totalDebt) || 0)}
-                  </td>
-                  <td className="p-3 text-right space-x-1">
-                    <Button variant="ghost" size="sm" onClick={() => openEditDialog(c)}>
-                      <Pencil className="w-4 h-4" />
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => handleDelete(c)}>
-                      <Trash2 className="w-4 h-4 text-destructive" />
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      {renderContent}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>

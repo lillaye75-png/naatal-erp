@@ -21,6 +21,7 @@ export const ROUTES = {
   SETTINGS: '/settings',
   SETTINGS_AUDIT: '/settings/audit',
   SETTINGS_USERS: '/settings/users',
+  SETTINGS_ROLES: '/settings/roles',
   CATEGORIES: '/categories',
   BRANDS: '/brands',
   EXPENSES: '/expenses',
@@ -32,5 +33,6 @@ export const ROUTES = {
   PRODUCTS_IMPORT: '/products/import',
   PROFILE: '/settings/profile',
   BRANCHES: '/branches',
+  RECURRING: '/recurring',
   SESSION_LOGS: '/settings/sessions',
 } as const

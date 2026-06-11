@@ -13,6 +13,8 @@ import { InvoiceModal } from "@/components/shared/InvoiceModal"
 import { PaymentStatusBadge } from "@/components/shared/PaymentStatusBadge"
 import { formatXOF } from "@/lib/currency"
 import { toast } from "sonner"
+import { ColumnVisibilityDropdown } from "@/components/shared/ColumnVisibilityDropdown"
+import { useColumnManager, type ColumnDef } from "@/hooks/useColumnManager"
 import type { Sale, Invoice } from "@/types"
 
 const TABS = [
@@ -48,6 +50,16 @@ export default function InvoicesPage() {
   const tenantId = useAuthStore((s) => s.tenant?.id)
   const tenant = useAuthStore((s) => s.tenant)
 
+  const columns: ColumnDef[] = useMemo(() => [
+    { id: 'number', label: 'N° Document' },
+    { id: 'type', label: 'Type' },
+    { id: 'total', label: 'Total' },
+    { id: 'status', label: 'Statut' },
+    { id: 'actions', label: 'Actions' },
+  ], [])
+
+  const { visible, filters, toggleColumn, setFilter, resetVisibility } = useColumnManager(columns)
+
   const filteredSales = useMemo(() => {
     let base = sales
     if (dateFilter === 'TODAY') {
@@ -65,12 +77,24 @@ export default function InvoicesPage() {
         return !isNaN(ts) && ts >= start && ts < end
       })
     }
-    if (activeTab === 'ALL') return base
-    if (activeTab === 'PENDING') return base.filter((s) => s.paymentStatus === 'PENDING' && (s.paymentMethod === 'WAVE' || s.paymentMethod === 'OM'))
-    if (activeTab === 'PAID') return base.filter((s) => s.paymentStatus === 'PAID')
-    if (activeTab === 'UNPAID') return base.filter((s) => s.paymentStatus === 'UNPAID' || s.paymentStatus === 'PARTIAL')
-    return base
-  }, [sales, activeTab, dateFilter, startDate, endDate])
+    const colFiltered = base.filter((inv) => {
+      const colMatch = Object.entries(filters).every(([key, val]) => {
+        if (!val) return true
+        const v = val.toLowerCase()
+        if (key === 'number') return (inv.invoiceId || inv.id || '').toLowerCase().includes(v)
+        if (key === 'type') return (inv.invoiceType || '').toLowerCase().includes(v)
+        if (key === 'total') return String(inv.total || 0).includes(v)
+        if (key === 'status') return (inv.paymentStatus || '').toLowerCase().includes(v)
+        return true
+      })
+      return colMatch
+    })
+    if (activeTab === 'ALL') return colFiltered
+    if (activeTab === 'PENDING') return colFiltered.filter((s) => s.paymentStatus === 'PENDING' && (s.paymentMethod === 'WAVE' || s.paymentMethod === 'OM'))
+    if (activeTab === 'PAID') return colFiltered.filter((s) => s.paymentStatus === 'PAID')
+    if (activeTab === 'UNPAID') return colFiltered.filter((s) => s.paymentStatus === 'UNPAID' || s.paymentStatus === 'PARTIAL')
+    return colFiltered
+  }, [sales, activeTab, dateFilter, startDate, endDate, filters])
 
   const totalSales = filteredSales
     .filter((s) => s.invoiceType !== 'PROFORMA' && s.invoiceType !== 'QUOTATION' && s.invoiceType !== 'CREDIT_NOTE')
@@ -125,6 +149,12 @@ export default function InvoicesPage() {
           <h1 className="text-2xl font-semibold">Factures</h1>
           <p className="text-sm text-muted-foreground mt-1">Gérez vos factures</p>
         </div>
+        <ColumnVisibilityDropdown
+          columns={columns}
+          visible={visible}
+          onToggle={toggleColumn}
+          onReset={resetVisibility}
+        />
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex gap-1">
@@ -194,31 +224,38 @@ export default function InvoicesPage() {
           <table className="w-full">
             <thead>
               <tr className="bg-muted/50">
-                <th className="text-left p-3 text-xs font-medium text-muted-foreground">N° Document</th>
-                <th className="text-center p-3 text-xs font-medium text-muted-foreground">Type</th>
-                <th className="text-right p-3 text-xs font-medium text-muted-foreground">Total</th>
-                <th className="text-center p-3 text-xs font-medium text-muted-foreground">Statut</th>
-                <th className="text-right p-3 text-xs font-medium text-muted-foreground">Actions</th>
+                {visible.has('number') && <th className="text-left p-3 text-xs font-medium text-muted-foreground">N° Document</th>}
+                {visible.has('type') && <th className="text-center p-3 text-xs font-medium text-muted-foreground">Type</th>}
+                {visible.has('total') && <th className="text-right p-3 text-xs font-medium text-muted-foreground">Total</th>}
+                {visible.has('status') && <th className="text-center p-3 text-xs font-medium text-muted-foreground">Statut</th>}
+                {visible.has('actions') && <th className="text-right p-3 text-xs font-medium text-muted-foreground">Actions</th>}
+              </tr>
+              <tr className="bg-muted/30">
+                {visible.has('number') && <th className="p-1"><Input placeholder="Filtrer..." className="h-7 text-xs" value={filters.number || ''} onChange={(e) => setFilter('number', e.target.value)} /></th>}
+                {visible.has('type') && <th className="p-1 hidden md:table-cell"><Input placeholder="Filtrer..." className="h-7 text-xs" value={filters.type || ''} onChange={(e) => setFilter('type', e.target.value)} /></th>}
+                {visible.has('total') && <th className="p-1"><Input placeholder="Min" className="h-7 text-xs" value={filters.total || ''} onChange={(e) => setFilter('total', e.target.value)} /></th>}
+                {visible.has('status') && <th className="p-1"><Input placeholder="Filtrer..." className="h-7 text-xs" value={filters.status || ''} onChange={(e) => setFilter('status', e.target.value)} /></th>}
+                {visible.has('actions') && <th className="p-1"></th>}
               </tr>
             </thead>
             <tbody>
               {filteredSales.map((s) => (
                 <tr key={s.id} className="border-t hover:bg-muted/30">
-                  <td className="p-3 text-sm font-medium">{s.invoiceId?.slice(-6) || '-'}</td>
-                  <td className="p-3 text-sm text-center">
+                  {visible.has('number') && <td className="p-3 text-sm font-medium">{s.invoiceId?.slice(-6) || '-'}</td>}
+                  {visible.has('type') && <td className="p-3 text-sm text-center">
                     <span className="text-xs px-2 py-0.5 rounded-full bg-muted/50">
                       {s.invoiceType === 'PROFORMA' ? 'Pro Forma' : s.invoiceType === 'QUOTATION' ? 'Devis' : s.invoiceType === 'CREDIT_NOTE' ? 'Avoir' : 'Facture'}
                     </span>
-                  </td>
-                  <td className="p-3 text-sm text-right font-medium">{formatXOF(s.total)}</td>
-                  <td className="p-3 text-center">
+                  </td>}
+                  {visible.has('total') && <td className="p-3 text-sm text-right font-medium">{formatXOF(s.total)}</td>}
+                  {visible.has('status') && <td className="p-3 text-center">
                     <PaymentStatusBadge status={s.paymentStatus} />
-                  </td>
-                  <td className="p-3 text-right">
+                  </td>}
+                  {visible.has('actions') && <td className="p-3 text-right">
                     <Button variant="ghost" size="sm" onClick={() => handleViewInvoice(s)}>
                       Voir
                     </Button>
-                  </td>
+                  </td>}
                 </tr>
               ))}
             </tbody>

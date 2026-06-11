@@ -1,11 +1,13 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { PackageSearch, AlertTriangle, Search, Warehouse, Eye, Plus, Minus, RefreshCw, ArrowRightLeft, Loader2 } from "lucide-react"
+import { ColumnVisibilityDropdown } from "@/components/shared/ColumnVisibilityDropdown"
+import { useColumnManager, type ColumnDef } from "@/hooks/useColumnManager"
 import { TableSkeleton } from "@/components/shared/Skeleton"
 import { useAuthStore } from "@/stores/auth.store"
 import { getProducts } from "@/repositories/product.repository"
@@ -60,6 +62,18 @@ export default function InventoryPage() {
   const tenantId = useAuthStore((s) => s.tenant?.id)
   const userId = useAuthStore((s) => s.user?.id)
   const getWarehouseName = useWarehouseName(tenantId)
+
+  const columns: ColumnDef[] = useMemo(() => [
+    { id: 'product', label: 'Produit' },
+    { id: 'warehouse', label: 'Entrepôt' },
+    { id: 'stock', label: 'Stock' },
+    { id: 'minStock', label: 'Min' },
+    { id: 'value', label: 'Valeur' },
+    { id: 'status', label: 'Statut' },
+    { id: 'actions', label: 'Actions' },
+  ], [])
+
+  const { visible, filters, toggleColumn, setFilter, resetVisibility } = useColumnManager(columns)
 
   useEffect(() => {
     if (!tenantId) return
@@ -261,6 +275,12 @@ export default function InventoryPage() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input placeholder="Rechercher un produit..." className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
+        <ColumnVisibilityDropdown
+          columns={columns}
+          visible={visible}
+          onToggle={toggleColumn}
+          onReset={resetVisibility}
+        />
         <Select value={warehouseFilter} onValueChange={(v) => setWarehouseFilter(v === 'all' || !v ? '' : v)}>
           <SelectTrigger className="w-[180px]">
             <Warehouse className="w-4 h-4 mr-1" />
@@ -289,13 +309,13 @@ export default function InventoryPage() {
           <table className="w-full">
             <thead>
               <tr className="bg-muted/50">
-                <th className="text-left p-3 text-xs font-medium text-muted-foreground">Produit</th>
-                <th className="text-left p-3 text-xs font-medium text-muted-foreground hidden md:table-cell">Entrepôt</th>
-                <th className="text-right p-3 text-xs font-medium text-muted-foreground">Stock</th>
-                <th className="text-right p-3 text-xs font-medium text-muted-foreground hidden md:table-cell">Min</th>
-                <th className="text-right p-3 text-xs font-medium text-muted-foreground hidden md:table-cell">Valeur</th>
-                <th className="text-center p-3 text-xs font-medium text-muted-foreground">Statut</th>
-                <th className="text-right p-3 text-xs font-medium text-muted-foreground">Actions</th>
+                {visible.has('product') && <th className="text-left p-3 text-xs font-medium text-muted-foreground">Produit</th>}
+                {visible.has('warehouse') && <th className="text-left p-3 text-xs font-medium text-muted-foreground hidden md:table-cell">Entrepôt</th>}
+                {visible.has('stock') && <th className="text-right p-3 text-xs font-medium text-muted-foreground">Stock</th>}
+                {visible.has('minStock') && <th className="text-right p-3 text-xs font-medium text-muted-foreground hidden md:table-cell">Min</th>}
+                {visible.has('value') && <th className="text-right p-3 text-xs font-medium text-muted-foreground hidden md:table-cell">Valeur</th>}
+                {visible.has('status') && <th className="text-center p-3 text-xs font-medium text-muted-foreground">Statut</th>}
+                {visible.has('actions') && <th className="text-right p-3 text-xs font-medium text-muted-foreground">Actions</th>}
               </tr>
             </thead>
             <tbody>
@@ -306,12 +326,12 @@ export default function InventoryPage() {
 
                 return (
                   <tr key={p.id} className="border-t hover:bg-muted/30">
-                    <td className="p-3 text-sm font-medium">{p.name}</td>
-                    <td className="p-3 text-sm text-muted-foreground hidden md:table-cell">{getWarehouseName(p.warehouseId)}</td>
-                    <td className="p-3 text-sm text-right font-medium">{stock}</td>
-                    <td className="p-3 text-sm text-right text-muted-foreground hidden md:table-cell">{minStock}</td>
-                    <td className="p-3 text-sm text-right hidden md:table-cell">{formatXOF(stock * p.costPrice)}</td>
-                    <td className="p-3 text-center">
+                    {visible.has('product') && <td className="p-3 text-sm font-medium">{p.name}</td>}
+                    {visible.has('warehouse') && <td className="p-3 text-sm text-muted-foreground hidden md:table-cell">{getWarehouseName(p.warehouseId)}</td>}
+                    {visible.has('stock') && <td className="p-3 text-sm text-right font-medium">{stock}</td>}
+                    {visible.has('minStock') && <td className="p-3 text-sm text-right text-muted-foreground hidden md:table-cell">{minStock}</td>}
+                    {visible.has('value') && <td className="p-3 text-sm text-right hidden md:table-cell">{formatXOF(stock * p.costPrice)}</td>}
+                    {visible.has('status') && <td className="p-3 text-center">
                       <span className={`text-xs px-2 py-0.5 rounded-full ${
                         status === 'OK' ? 'bg-success/10 text-success' :
                         status === 'LOW' ? 'bg-warning/10 text-warning' :
@@ -319,12 +339,12 @@ export default function InventoryPage() {
                       }`}>
                         {status === 'OK' ? 'OK' : status === 'LOW' ? 'Faible' : 'Rupture'}
                       </span>
-                    </td>
-                    <td className="p-3 text-right">
+                    </td>}
+                    {visible.has('actions') && <td className="p-3 text-right">
                       <Button variant="ghost" size="xs" onClick={() => loadMovements(p)}>
                         <Eye className="w-3 h-3" />
                       </Button>
-                    </td>
+                    </td>}
                   </tr>
                 )
               })}
