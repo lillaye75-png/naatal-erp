@@ -11,7 +11,7 @@ import { TableSkeleton } from "@/components/shared/Skeleton"
 import { useAuthStore } from "@/stores/auth.store"
 import { collection, doc, getDoc, getDocs, query, where, addDoc, updateDoc, setDoc, Timestamp } from 'firebase/firestore'
 import { initializeFirebase } from '@/lib/firebase'
-import { Building2, FileText, Smartphone, Globe, Settings2, Save, Plug, Wifi, Users, Upload, X, Plus, UserCheck, Mail, Download, Clock, Loader2 } from "lucide-react"
+import { Building2, FileText, Smartphone, Globe, Settings2, Save, Wifi, Users, Upload, X, Plus, UserCheck, Mail, Download, Clock, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { testWaveConnection } from "@/lib/wave"
 import { testOrangeMoneyConnection } from "@/lib/orange-money"
@@ -164,7 +164,7 @@ export default function SettingsPage() {
         language: form.language,
         currency: form.currency,
         updatedAt: now,
-      }).catch(() => null)
+      }).catch((err) => console.error('Tenant update failed:', err))
 
       const settingsData = {
         taxRate: form.taxRate,
@@ -394,7 +394,7 @@ export default function SettingsPage() {
           <h1 className="text-2xl font-semibold">Paramètres</h1>
           <p className="text-sm text-muted-foreground mt-1">Configuration de l'application</p>
         </div>
-        {tab !== "users" && (
+        {tab !== "users" && tab !== "backup" && (
           <Button onClick={save} disabled={saving}>
             <Save className="w-4 h-4 mr-1" />
             {saving ? "Enregistrement..." : "Enregistrer"}

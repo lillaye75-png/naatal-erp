@@ -139,24 +139,63 @@ export default function InventoryPage() {
     setMovementSubmitting(true)
     try {
       const { db } = await initializeFirebase()
-      const movRef = doc(collection(db, 'inventory_movements'))
-      await setDoc(movRef, {
-        id: movRef.id,
-        productId: addMovementProduct.id,
-        type: movementType === 'IN' ? 'PURCHASE' : movementType === 'OUT' ? 'SALE' : 'ADJUSTMENT',
-        qty: movementType === 'OUT' ? -qty : qty,
-        balance: 0,
-        note: movementNote || `Mouvement manuel: ${MOVEMENT_TYPE_OPTIONS.find(o => o.value === movementType)?.label || movementType}`,
-        referenceId: addMovementProduct.id,
-        warehouseId: movementType === 'TRANSFER' ? movementWarehouse : (addMovementProduct.warehouseId || ''),
-        tenantId,
-        createdAt: Timestamp.now().toMillis().toString(),
-        updatedAt: Timestamp.now().toMillis().toString(),
-        createdBy: userId,
-        updatedBy: userId,
-        isDeleted: false,
-        status: 'ACTIVE',
-      })
+      if (movementType === 'TRANSFER') {
+        const outRef = doc(collection(db, 'inventory_movements'))
+        await setDoc(outRef, {
+          id: outRef.id,
+          productId: addMovementProduct.id,
+          type: 'TRANSFER',
+          qty: -qty,
+          balance: 0,
+          note: movementNote || `Transfert sortant vers ${movementWarehouse}`,
+          referenceId: addMovementProduct.id,
+          warehouseId: addMovementProduct.warehouseId || '',
+          tenantId,
+          createdAt: Timestamp.now().toMillis().toString(),
+          updatedAt: Timestamp.now().toMillis().toString(),
+          createdBy: userId,
+          updatedBy: userId,
+          isDeleted: false,
+          status: 'ACTIVE',
+        })
+        const inRef = doc(collection(db, 'inventory_movements'))
+        await setDoc(inRef, {
+          id: inRef.id,
+          productId: addMovementProduct.id,
+          type: 'TRANSFER',
+          qty,
+          balance: 0,
+          note: movementNote || `Transfert entrant depuis ${addMovementProduct.warehouseId || 'entrepôt source'}`,
+          referenceId: addMovementProduct.id,
+          warehouseId: movementWarehouse,
+          tenantId,
+          createdAt: Timestamp.now().toMillis().toString(),
+          updatedAt: Timestamp.now().toMillis().toString(),
+          createdBy: userId,
+          updatedBy: userId,
+          isDeleted: false,
+          status: 'ACTIVE',
+        })
+      } else {
+        const movRef = doc(collection(db, 'inventory_movements'))
+        await setDoc(movRef, {
+          id: movRef.id,
+          productId: addMovementProduct.id,
+          type: movementType === 'IN' ? 'PURCHASE' : movementType === 'OUT' ? 'SALE' : 'ADJUSTMENT',
+          qty: movementType === 'OUT' ? -qty : qty,
+          balance: 0,
+          note: movementNote || `Mouvement manuel: ${MOVEMENT_TYPE_OPTIONS.find(o => o.value === movementType)?.label || movementType}`,
+          referenceId: addMovementProduct.id,
+          warehouseId: addMovementProduct.warehouseId || '',
+          tenantId,
+          createdAt: Timestamp.now().toMillis().toString(),
+          updatedAt: Timestamp.now().toMillis().toString(),
+          createdBy: userId,
+          updatedBy: userId,
+          isDeleted: false,
+          status: 'ACTIVE',
+        })
+      }
       toast.success("Mouvement enregistré")
       setShowAddMovement(false)
       setAddMovementProduct(null)

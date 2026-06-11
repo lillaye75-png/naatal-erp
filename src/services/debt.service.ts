@@ -77,7 +77,7 @@ export async function recordPayment(saleId: string, amount: number, userId: stri
     }
   })
 
-  createAuditLog({
+  await createAuditLog({
     tenantId,
     userId,
     userName: '',

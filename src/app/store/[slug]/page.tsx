@@ -81,7 +81,7 @@ export default function StorefrontPage() {
         where('tenantId', '==', store.tenantId),
       ))
       if (!snap.empty) setTrackedOrder({ id: snap.docs[0].id, ...snap.docs[0].data() })
-    }).catch(() => {})
+    }).catch((err) => console.error('Track order lookup failed:', err))
   }, [trackId, store])
 
   useEffect(() => {
@@ -135,7 +135,7 @@ export default function StorefrontPage() {
               chunk.forEach((pid) => { stockMap[pid] = grouped[pid] ?? null })
             }
             if (!cancelled) setStocks(stockMap)
-          } catch {}
+          } catch (err) { console.error('Failed to load stock for chunk:', err) }
         }
       } catch (err) {
         console.error('Error loading storefront:', err)

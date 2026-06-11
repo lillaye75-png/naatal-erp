@@ -279,6 +279,9 @@ export interface Order {
   paymentMethod: string
   createdAt: string
   updatedAt: string
+  processedAt?: string
+  createdBy?: string
+  updatedBy?: string
 }
 
 export interface OrderItem {
