@@ -12,6 +12,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "RESEND_API_KEY not configured" }, { status: 500 })
     }
 
+    const fromAddress = process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev"
+    const fromName = process.env.RESEND_FROM_NAME || "Naatal ERP"
+
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
@@ -19,7 +22,7 @@ export async function POST(req: NextRequest) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: "Naatal ERP <naatal.erp@naatal.erp>",
+        from: `${fromName} <${fromAddress}>`,
         to,
         subject,
         html,
@@ -27,8 +30,12 @@ export async function POST(req: NextRequest) {
     })
 
     if (!res.ok) {
-      const body = await res.text()
-      return NextResponse.json({ error: body }, { status: res.status })
+      let message = "Email send failed"
+      try {
+        const body = await res.json()
+        message = body.message || body.error || message
+      } catch { message = await res.text().catch(() => message) }
+      return NextResponse.json({ error: message }, { status: res.status })
     }
 
     const data = await res.json()

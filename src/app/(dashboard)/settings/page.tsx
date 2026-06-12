@@ -11,7 +11,8 @@ import { TableSkeleton } from "@/components/shared/Skeleton"
 import { useAuthStore } from "@/stores/auth.store"
 import { collection, doc, getDoc, getDocs, query, where, addDoc, updateDoc, setDoc, Timestamp } from 'firebase/firestore'
 import { initializeFirebase } from '@/lib/firebase'
-import { Building2, FileText, Smartphone, Globe, Settings2, Save, Wifi, Users, Upload, X, Plus, UserCheck, Mail, Download, Clock, Loader2 } from "lucide-react"
+import { Building2, FileText, Smartphone, Globe, Settings2, Save, Wifi, Users, Upload, X, Plus, UserCheck, Mail, Download, Clock, Loader2, Activity } from "lucide-react"
+import { ActivityFeed } from "@/features/dashboard/ActivityFeed"
 import { toast } from "sonner"
 import { testWaveConnection } from "@/lib/wave"
 import { testOrangeMoneyConnection } from "@/lib/orange-money"
@@ -229,7 +230,7 @@ export default function SettingsPage() {
     if (!tenantId || !inviteEmail) return
     try {
       const { db } = await initializeFirebase()
-      const inviteId = await addDoc(collection(db, 'user_invites'), {
+      await addDoc(collection(db, 'user_invites'), {
         email: inviteEmail,
         role: inviteRole,
         tenantId,
@@ -252,10 +253,12 @@ export default function SettingsPage() {
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
-        throw new Error(err.error || "Erreur d'envoi d'email")
+        const msg = typeof err.error === 'string' ? err.error : "Erreur d'envoi d'email"
+        console.warn('Email send failed (invite still created):', msg)
+        toast.warning(`Invitation créée. Configurez RESEND_FROM_EMAIL dans Vercel pour envoyer l'email, ou dites à l'utilisateur de s'inscrire directement.`)
+      } else {
+        toast.success(`Invitation envoyée à ${inviteEmail}`)
       }
-
-      toast.success(`Invitation envoyée à ${inviteEmail}`)
       setShowInvite(false)
       setInviteEmail("")
     } catch (err) {
@@ -328,6 +331,7 @@ export default function SettingsPage() {
     { id: "payments", label: "Paiements", icon: Smartphone },
     { id: "store", label: "Boutique en ligne", icon: Globe },
     { id: "users", label: "Utilisateurs & Rôles", icon: Users },
+    { id: "activity", label: "Activité", icon: Activity },
     { id: "backup", label: "Sauvegarde", icon: Download },
   ]
 
@@ -716,6 +720,10 @@ export default function SettingsPage() {
             </table>
           </div>
         </div>
+      )}
+
+      {tab === "activity" && (
+        <ActivityFeed />
       )}
 
       {tab === "backup" && (
