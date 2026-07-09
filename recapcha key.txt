@@ -1,0 +1,3 @@
+Got them. Let me configure reCAPTCHA on Firebase:
+Site Key: 6LdUvkstAAAAAErD_CNfyKhZ2Cdcpb1JVHGS-v47  
+Secret Key: 6LdUvkstAAAAAIcORS1tAwzDZnrkYNHQlLiTHtCI

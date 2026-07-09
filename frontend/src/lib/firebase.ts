@@ -13,14 +13,24 @@ export async function getFirebase() {
   const hasConfig = Object.values(firebaseConfig).every(Boolean);
   if (!hasConfig) return null;
 
-  const [{ initializeApp, getApps }, { getAuth }, { getFirestore }, { getStorage }] = await Promise.all([
-    import("firebase/app"),
-    import("firebase/auth"),
-    import("firebase/firestore"),
-    import("firebase/storage"),
-  ]);
+  const appModule = await import("firebase/app");
+  const { getAuth } = await import("firebase/auth");
+  const { getFirestore } = await import("firebase/firestore");
+  const { getStorage } = await import("firebase/storage");
+  const { initializeAppCheck, ReCaptchaEnterpriseProvider } = await import("firebase/app-check");
 
+  const { initializeApp, getApps } = appModule;
   const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
+
+  if (typeof self !== "undefined") {
+    (self as any).FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+  }
+
+  initializeAppCheck(app, {
+    provider: new ReCaptchaEnterpriseProvider("6LdUvkstAAAAAErD_CNfyKhZ2Cdcpb1JVHGSXS47"),
+    isTokenAutoRefreshEnabled: true,
+  });
+
   const auth = getAuth(app);
   const db = getFirestore(app);
   const storage = getStorage(app);
